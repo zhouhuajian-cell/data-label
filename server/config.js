@@ -11,7 +11,7 @@ const requiredEnv = (value, name) => {
 }
 
 export const config = {
-  host: process.env.API_HOST || '127.0.0.1',
+  host: process.env.API_HOST || '0.0.0.0',
   port: Number(process.env.API_PORT || 3001),
   jwtSecret: requiredEnv(process.env.JWT_SECRET, 'JWT_SECRET') || 'dev-only-change-me',
   tokenTtlSeconds: seconds(process.env.TOKEN_TTL_SECONDS, 60 * 60 * 8),

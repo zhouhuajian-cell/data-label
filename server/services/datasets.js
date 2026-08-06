@@ -22,10 +22,11 @@ export function listDatasets(user) {
   const source = isCleaner ? collectAll() : collectAccepted()
   const byTask = {}
   source.forEach(i => {
-    if (!byTask[i.taskId]) byTask[i.taskId] = { count: 0, boxCount: 0, tagged: 0, labels: {} }
+    if (!byTask[i.taskId]) byTask[i.taskId] = { count: 0, boxCount: 0, tagged: 0, labels: {}, scenarioTags: {} }
     const g = byTask[i.taskId]
     g.count++
     if ((i.tags || []).length > 0) g.tagged++
+    ;(i.tags || []).forEach(t => { g.scenarioTags[t] = (g.scenarioTags[t] || 0) + 1 })
     ;((i.annotation || {}).boxes || []).forEach(b => {
       if (!b.label) return
       g.boxCount++
@@ -44,16 +45,22 @@ export function listDatasets(user) {
       taggedCount: g.tagged,
       boxCount: g.boxCount,
       labelCount: Object.keys(g.labels).length,
-      labelDist: Object.entries(g.labels).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
+      labelDist: Object.entries(g.labels).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value),
+      scenarioDist: Object.entries(g.scenarioTags).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
     }
   }).sort((a, b) => b.acceptedCount - a.acceptedCount)
 
   const globalLabels = {}
+  const globalScenario = {}
   const allTagged = isCleaner ? taskItems.filter(i => (i.tags || []).length > 0).length : 0
-  datasets.forEach(d => d.labelDist.forEach(l => { globalLabels[l.name] = (globalLabels[l.name] || 0) + l.value }))
+  datasets.forEach(d => {
+    d.labelDist.forEach(l => { globalLabels[l.name] = (globalLabels[l.name] || 0) + l.value })
+    d.scenarioDist.forEach(s => { globalScenario[s.name] = (globalScenario[s.name] || 0) + s.value })
+  })
   const globalLabelDist = Object.entries(globalLabels).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
+  const globalScenarioDist = Object.entries(globalScenario).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
 
-  return { datasets, globalLabelDist, allTagged }
+  return { datasets, globalLabelDist, globalScenarioDist, allTagged }
 }
 
 export function getDatasetItems(user, taskId) {

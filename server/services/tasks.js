@@ -2,17 +2,62 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ApiError } from '../lib/http.js'
-import { auditLogs, submissions, suppliers, taskLogs, tasks, taskItems } from '../repositories/data.js'
+import { auditLogs, submissions, suppliers, taskLogs, tasks, taskItems, ERROR_TYPES } from '../repositories/data.js'
 import { createNotification } from './notifications.js'
 import { nowText } from '../lib/time.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const uploadsDir = path.resolve(__dirname, '../../uploads')
 
+// 生成验收报告：统计通过/返修(甲方驳回)/驳回原因汇总
+function buildAcceptanceReport(taskId) {
+  const items = taskItems.filter(i => i.taskId === taskId)
+  const total = items.length
+  const passed = items.filter(i => i.status === 'accepted').length
+  // 甲方驳回过的明细（history 含 client_reject，或 firstPass=false 且返工过）
+  const rework = items.filter(i =>
+    (i.history || []).some(h => h.action === 'client_reject') ||
+    (i.clientReviewed === true && i.firstPass === false)
+  ).length
+  const rejected = items.filter(i => i.status === 'rework').length
+
+  // 驳回原因汇总（仅统计甲方驳回的 errorTypes）
+  const errMap = {}
+  items.forEach(i => {
+    const types = new Set()
+    ;(i.history || []).forEach(h => {
+      if (h.action === 'client_reject') (h.errorTypes || []).forEach(t => types.add(t))
+    })
+    types.forEach(t => { errMap[t] = (errMap[t] || 0) + 1 })
+  })
+  const errLabel = {}
+  ERROR_TYPES.forEach(t => { errLabel[t.value] = t.label })
+  const reasonLines = Object.entries(errMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `- ${errLabel[k] || k}：${v} 条`)
+
+  const lines = []
+  lines.push(`**任务**：${tasks.find(t => t.id === taskId)?.taskName || taskId}`)
+  lines.push(`**验收结果**：通过 ${passed} 条 / 返修 ${rework} 条 / 共 ${total} 条`)
+  if (rework > 0) {
+    lines.push('')
+    lines.push('**返修原因汇总**：')
+    if (reasonLines.length) lines.push(...reasonLines)
+    else lines.push('- （未记录具体原因）')
+  }
+  return lines.join('\n')
+}
+
+export function pushAcceptanceReport(taskId, actorName) {
+  const task = tasks.find(t => t.id === taskId)
+  if (!task) return
+  createNotification(null, 'qa', '验收报告', `${task.taskName}\n${buildAcceptanceReport(taskId)}\n\n> 验收人：${actorName} · ${nowText()}`, 'task', taskId)
+}
+
 const buyerRole = 1; const qaRole = 2; const supplierRole = 3
 
 function ensureUploadsDir() { if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true }) }
-function requireBuyer(user) { if (user.roleType !== buyerRole && user.roleType !== qaRole) throw new ApiError(403, 'FORBIDDEN', '仅甲方/质检可操作') }
+function requireBuyer(user) { if (![1, 2, 7].includes(user.roleType)) throw new ApiError(403, 'FORBIDDEN', '仅甲方/质检/清洗可操作') }
 function requireSupplier(user) { if (user.roleType !== supplierRole) throw new ApiError(403, 'FORBIDDEN', '仅供应商可操作') }
 function canAccessTask(user, task) { return user.roleType !== supplierRole || task.supplierId === user.supplierId }
 function findVisibleTask(user, taskId) {
@@ -21,6 +66,13 @@ function findVisibleTask(user, taskId) {
   return task
 }
 function addLog(taskId, content, type = 'primary') { taskLogs.push({ taskId, time: nowText(), content, type }) }
+
+// 检查任务下明细是否全部达到某个状态
+function checkItemsState(taskId, status) {
+  const items = taskItems.filter(i => i.taskId === taskId)
+  if (!items.length) return true
+  return items.every(i => i.status === status || (status === 'annotated' && ['annotated','vendor_passed','accepted'].includes(i.status)) || (status === 'vendor_passed' && ['vendor_passed','accepted'].includes(i.status)))
+}
 
 function checkOverdue(task) {
   if (task.state === 'ACCEPTED' || task.state === 'ARCHIVED' || task.state === 'REJECTED') return
@@ -57,7 +109,12 @@ export function listTasks(user, query) {
 export function getTaskDetail(user, taskId) {
   const task = findVisibleTask(user, taskId)
   checkOverdue(task)
-  return { task, stateLog: taskLogs.filter(l => l.taskId === taskId), versions: submissions.filter(s => s.taskId === taskId) }
+  const logs = taskLogs.filter(l => l.taskId === taskId)
+  // 兜底：任务已验收但时间线没有验收记录时自动补一条
+  if (task.state === 'ACCEPTED' && !logs.some(l => l.content.includes('验收'))) {
+    logs.push({ taskId, time: task.acceptTime || nowText(), content: '甲方验收通过，任务完成', type: 'success' })
+  }
+  return { task, stateLog: logs, versions: submissions.filter(s => s.taskId === taskId) }
 }
 
 export function createTask(user, body) {
@@ -68,9 +125,11 @@ export function createTask(user, body) {
   const sampleCount = Number(body.sampleCount)
   const unitPrice = Number(body.unitPrice)
   const deadline = String(body.deadline || '').trim()
+  const uploadPath = String(body.uploadPath || '').trim()
   if (!taskName || !annotateType || !deadline || !isFinite(sampleCount) || sampleCount <= 0) {
     throw new ApiError(422, 'VALIDATION_ERROR', '请填写完整任务信息')
   }
+  if (!uploadPath) throw new ApiError(422, 'VALIDATION_ERROR', '请填写数据上传路径')
 
   let dataPackage = null
   const dp = body.dataPackage
@@ -82,8 +141,9 @@ export function createTask(user, body) {
   }
 
   const task = {
-    id: Math.max(...tasks.map(t => t.id)) + 1, taskName,
+    id: Math.max(0, ...tasks.map(t => Number(t.id) || 0)) + 1, taskName,
     nanoId: String(body.nanoId || '').trim(),
+    uploadPath,
     annotateType, state: 'UNASSIGNED', deadline, sampleCount, unitPrice,
     totalPrice: Number((sampleCount * unitPrice).toFixed(2)),
     supplierId: null, supplierName: '', currentRework: 0,
@@ -96,6 +156,23 @@ export function createTask(user, body) {
   addLog(task.id, user.userName + ' 创建任务，状态：待作业')
   auditLogs.push({ action: 'task.create', actorId: user.id, taskId: task.id, at: nowText() })
   return task
+}
+
+// 给任务上传/更新数据包（供供应商下载原始数据）
+export function uploadTaskPackage(user, taskId, body) {
+  requireBuyer(user)
+  const task = findVisibleTask(user, taskId)
+  const fileName = String(body.fileName || '').trim()
+  if (!fileName || !body.fileData) throw new ApiError(422, 'VALIDATION_ERROR', '请上传数据包文件')
+  ensureUploadsDir()
+  const safeName = fileName.replace(/[^a-zA-Z0-9._\-\u4e00-\u9fa5]/g, '_')
+  const storedName = `taskpkg_${taskId}_${Date.now()}_${safeName}`
+  const buffer = Buffer.from(body.fileData, 'base64')
+  fs.writeFileSync(path.join(uploadsDir, storedName), buffer)
+  task.dataPackage = { fileName, storedName, size: buffer.length }
+  addLog(task.id, user.userName + ' 上传数据包 ' + fileName)
+  auditLogs.push({ action: 'task.packageUpload', actorId: user.id, taskId, fileName, at: nowText() })
+  return task.dataPackage
 }
 
 export function dispatchTask(user, taskId, body) {
@@ -127,8 +204,11 @@ export function completeWork(user, taskId) {
   requireSupplier(user)
   const task = findVisibleTask(user, taskId)
   if (task.state !== 'ANNOTATING') throw new ApiError(409, 'TASK_STATE_CONFLICT', '当前状态不可完成作业')
+  const items = taskItems.filter(i => i.taskId === taskId)
+  const unannotated = items.filter(i => !['annotated','vendor_passed','accepted','rework'].includes(i.status)).length
+  if (unannotated > 0) throw new ApiError(409, 'TASK_STATE_CONFLICT', `还有 ${unannotated} 条明细未完成标注，无法提交`)
   task.state = 'VENDOR_QA'
-  addLog(task.id, user.userName + ' 完成作业，内部质检通过，待提交交付')
+  addLog(task.id, user.userName + ' 完成作业，明细已全部标注，待供应商内部质检')
   return task
 }
 
@@ -138,7 +218,12 @@ export function submitTask(user, taskId, body) {
   if (!['VENDOR_QA', 'REJECTED'].includes(task.state)) throw new ApiError(409, 'TASK_STATE_CONFLICT', '当前状态不可提交')
 
   const submitDesc = String(body.submitDesc || '').trim()
-  if (!body.fileName) throw new ApiError(422, 'VALIDATION_ERROR', '请上传标注成果文件')
+  if (!body.fileName || !body.fileData) throw new ApiError(422, 'VALIDATION_ERROR', '请上传标注成果文件（数据包不能为空）')
+
+  // 校验：所有明细必须已经过供应商质检（vendor_passed 或 accepted）
+  const items = taskItems.filter(i => i.taskId === taskId)
+  const unqualified = items.filter(i => !['vendor_passed','accepted'].includes(i.status)).length
+  if (unqualified > 0) throw new ApiError(409, 'TASK_STATE_CONFLICT', `还有 ${unqualified} 条明细未通过供应商质检，请先质检后再提交`)
 
   // 保存文件数据
   let storedName = null
@@ -198,16 +283,31 @@ export function reviewTask(user, taskId, body) {
   task.state = pass ? 'ACCEPTED' : 'REJECTED'
   if (pass) {
     task.acceptTime = nowText()
+    // 验收通过 → 将任务下所有待验收明细同步为已验收
+    const taskItems2 = taskItems.filter(i => i.taskId === taskId)
+    taskItems2.forEach(item => {
+      if (['vendor_passed', 'accepted'].includes(item.status)) {
+        if (item.status === 'vendor_passed') {
+          item.status = 'accepted'
+          item.clientReviewed = true
+          item.firstPass = (item.reworkCount || 0) === 0
+          if (!Array.isArray(item.history)) item.history = []
+          item.history.push({ time: nowText(), actor: user.userName, action: 'client_pass' })
+        }
+      }
+    })
+    // 验收通过 → 自动生成结算单
+    import('./settlement.js').then(m => m.autoGenerateSettlement(taskId, user.userName)).catch(() => {})
+    // 验收报告（含通过/返修统计 + 驳回原因汇总）
+    pushAcceptanceReport(taskId, user.userName)
   } else {
     task.rejectCount = (task.rejectCount || 0) + 1; task.currentRework = (task.currentRework || 0) + 1
   }
   addLog(task.id, user.userName + (pass ? ' 验收通过，得分' + score : ' 驳回整改：' + rejectReason + '，得分' + score), pass ? 'success' : 'danger')
   auditLogs.push({ action: pass ? 'task.pass' : 'task.reject', actorId: user.id, taskId, score, at: nowText() })
-  const notifyTitle = pass ? '验收通过' : '驳回整改'
-  const notifyContent = pass
-    ? `「${task.taskName}」已通过甲方验收，得分 ${score} 分，进入结算`
-    : `「${task.taskName}」被甲方驳回（${rejectReason || comment}），得分 ${score} 分，请整改后重新提交`
-  createNotification(null, pass ? 'qa' : 'qa', notifyTitle, notifyContent, 'task', task.id)
+  if (!pass) {
+    createNotification(null, 'qa', '驳回整改', `「${task.taskName}」被甲方驳回（${rejectReason || comment}），得分 ${score} 分，请整改后重新提交`, 'task', task.id)
+  }
   return task
 }
 

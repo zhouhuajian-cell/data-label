@@ -36,8 +36,21 @@ export function calcTaskSettlement(taskId) {
 export function generateSettlement(user, body) {
   if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅甲方 PM 可生成结算单')
   const taskId = Number(body.taskId)
-  const calc = calcTaskSettlement(taskId)
+  return createSettlement(taskId, user.userName)
+}
 
+// 任务验收通过后自动生成结算单（幂等：已存在则跳过）
+export function autoGenerateSettlement(taskId, actorName) {
+  try {
+    return createSettlement(taskId, actorName || '系统')
+  } catch (e) {
+    if (e.code === 'STATE_CONFLICT') return null // 已存在
+    return null
+  }
+}
+
+function createSettlement(taskId, actorName) {
+  const calc = calcTaskSettlement(taskId)
   const exists = settlements.find(s => s.taskId === taskId && s.status !== 'CANCELLED')
   if (exists) throw new ApiError(409, 'STATE_CONFLICT', '该任务已存在结算单 ' + exists.billNo)
 
@@ -53,17 +66,17 @@ export function generateSettlement(user, body) {
     rejected: calc.rejected,
     status: calc.rejected ? 'REJECTED' : 'PENDING',
     confirms: [],
-    createTime: nowText(), createBy: user.userName
+    createTime: nowText(), createBy: actorName
   }
   settlements.push(settlement)
-  auditLogs.push({ action: 'settlement.generate', actorId: user.id, taskId, billNo, at: nowText() })
+  auditLogs.push({ action: 'settlement.generate', actorId: null, taskId, billNo, at: nowText() })
   return settlement
 }
 
 export function listSettlements(user) {
   // 数据隔离：供应商仅看本团队账单
   let list = settlements
-  if ([3, 4, 5].includes(user.roleType)) list = list.filter(s => s.supplierId === user.supplierId)
+  if ([3, 4].includes(user.roleType)) list = list.filter(s => s.supplierId === user.supplierId)
   return list.slice().sort((a, b) => b.id - a.id)
 }
 
@@ -90,7 +103,7 @@ export function confirmSettlement(user, id) {
 export function exportSettlementCsv(user, id) {
   const s = settlements.find(item => item.id === id)
   if (!s) throw new ApiError(404, 'NOT_FOUND', '结算单不存在')
-  if ([3, 4, 5].includes(user.roleType) && s.supplierId !== user.supplierId) {
+  if ([3, 4].includes(user.roleType) && s.supplierId !== user.supplierId) {
     throw new ApiError(403, 'FORBIDDEN', '无权导出他人账单')
   }
   const rows = [

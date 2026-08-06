@@ -1,14 +1,12 @@
 export const users = [
   { id: 1, username: 'admin', password: '123', userName: '甲方PM', roleType: 1, supplierId: null, disabled: false },
   { id: 2, username: 'qa_01', password: '123', userName: '甲方质检员', roleType: 2, supplierId: null, disabled: false },
-  { id: 3, username: 'supp_a', password: '123', userName: '供应商A-TL', roleType: 3, supplierId: 101, disabled: false },
-  { id: 4, username: 'supp_b', password: '123', userName: '供应商B-TL', roleType: 3, supplierId: 102, disabled: false },
+  { id: 3, username: 'supp_a', password: '123', userName: '供应商A_TL', roleType: 3, supplierId: 101, disabled: false },
+  { id: 4, username: 'supp_b', password: '123', userName: '供应商B_TL', roleType: 3, supplierId: 102, disabled: false },
   { id: 5, username: 'anno_a1', password: '123', userName: '标注员A1', roleType: 4, supplierId: 101, disabled: false },
-  { id: 6, username: 'vqa_a', password: '123', userName: '供应商质检A', roleType: 5, supplierId: 101, disabled: false },
   { id: 7, username: 'algo_01', password: '123', userName: '算法工程师', roleType: 6, supplierId: null, disabled: false },
   { id: 8, username: 'anno_a2', password: '123', userName: '标注员A2', roleType: 4, supplierId: 101, disabled: false },
   { id: 9, username: 'anno_b1', password: '123', userName: '标注员B1', roleType: 4, supplierId: 102, disabled: false },
-  { id: 10, username: 'vqa_b', password: '123', userName: '供应商质检B', roleType: 5, supplierId: 102, disabled: false },
   { id: 11, username: 'clean_a1', password: '123', userName: '数据清洗A1', roleType: 7, supplierId: null, disabled: false },
   { id: 12, username: 'clean_b1', password: '123', userName: '数据清洗B1', roleType: 7, supplierId: null, disabled: false }
 ]
@@ -172,9 +170,13 @@ export const scenarioDimensions = [
   { id: 2, label: '天气', tags: ['晴天', '雨天', '雪天', '雾天', '阴天'] },
   { id: 3, label: '道路类型', tags: ['高速', '城区', '乡村', '隧道', '停车场'] },
   { id: 4, label: '交通密度', tags: ['通畅', '缓行', '拥堵'] },
-  { id: 5, label: '特殊场景', tags: ['施工区', '学校区域', '逆光', '积水'] }
+  { id: 5, label: '特殊场景', tags: ['施工区', '学校区域', '逆光', '积水'] },
+  { id: 6, label: '车型', tags: ['轿车', 'SUV', '卡车', '客车', '其他车型'] }
 ]
 
 // 数据治理中心：R&D 导入的原始数据集合（与项目管理分离）
 export const governedDatasets = []
 export const governedItems = []
+
+// 飞书 Webhook 配置（支持多群推送）
+export const feishuConfig = { webhooks: [{ name: '测试通知群', url: 'https://open.feishu.cn/open-apis/bot/v2/hook/731cd5f4-3698-410c-aa58-50222462b983' }], enabled: true }

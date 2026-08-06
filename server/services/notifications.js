@@ -1,6 +1,7 @@
 import { notifications, users } from '../repositories/data.js'
 import { ApiError } from '../lib/http.js'
 import { nowText } from '../lib/time.js'
+import { sendFeishu } from './feishu.js'
 
 // 创建通知：推送给指定的用户或角色范围
 export function createNotification(targetUserIds, type, title, content, refType, refId) {
@@ -14,6 +15,8 @@ export function createNotification(targetUserIds, type, title, content, refType,
     createdAt: nowText()
   }
   notifications.push(note)
+  // 自动推送飞书（异步，不阻塞）
+  sendFeishu(title, content).catch(() => {})
   return note
 }
 

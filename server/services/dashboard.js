@@ -4,7 +4,7 @@ import { supplierQualityStats } from './settlement.js'
 const errLabel = v => (ERROR_TYPES.find(t => t.value === v) || {}).label || v
 
 export function getDashboardData(user) {
-  const isVendor = [3, 4, 5].includes(user.roleType)
+  const isVendor = [3, 4].includes(user.roleType)
   const visibleTasks = isVendor ? tasks.filter(t => t.supplierId === user.supplierId) : tasks
   const taskIds = new Set(visibleTasks.map(t => t.id))
   const items = taskItems.filter(i => taskIds.has(i.taskId))

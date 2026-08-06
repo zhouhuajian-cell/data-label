@@ -4,14 +4,20 @@ import { nowText } from '../lib/time.js'
 
 const buyerRole = 1
 const qaRole = 2
+const cleanerRole = 7
 
 const VALID_STATUSES = ['active', 'completed', 'paused', 'archived']
 const STATUS_LABELS = { active: '进行中', completed: '已完成', paused: '已暂停', archived: '已归档' }
 
 function requireBuyer(user) {
-  if (user.roleType !== buyerRole && user.roleType !== qaRole) {
-    throw new ApiError(403, 'FORBIDDEN', '只有甲方或质检角色可以执行该操作')
+  if (![buyerRole, qaRole, cleanerRole].includes(user.roleType)) {
+    throw new ApiError(403, 'FORBIDDEN', '只有甲方、质检或数据清洗角色可以执行该操作')
   }
+}
+
+// 查看项目（含供应商：仅能查看与自己任务相关的项目）
+function canViewProjects(user) {
+  return [buyerRole, qaRole, cleanerRole].includes(user.roleType)
 }
 
 export function getProjectStats(user) {
@@ -31,12 +37,17 @@ export function updateProjectCount(user, body) {
 }
 
 export function listProjects(user) {
-  requireBuyer(user)
+  if (!canViewProjects(user)) throw new ApiError(403, 'FORBIDDEN', '无权查看项目')
+  if (user.roleType === 3) {
+    // 供应商仅看到自己承接任务的关联项目
+    const projIds = new Set(tasks.filter(t => t.supplierId === user.supplierId).map(t => t.projectId))
+    return projects.filter(p => projIds.has(p.id)).sort((a, b) => b.id - a.id)
+  }
   return projects.slice().sort((a, b) => b.id - a.id)
 }
 
 export function getProjectDetail(user, projectId) {
-  requireBuyer(user)
+  if (!canViewProjects(user)) throw new ApiError(403, 'FORBIDDEN', '无权查看项目')
   const project = projects.find(p => p.id === projectId)
   if (!project) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
   return { project }
@@ -50,6 +61,8 @@ export function createProject(user, body) {
   const sampleCount = Number(body.sampleCount)
   const deadline = String(body.deadline || '').trim()
   const description = String(body.description || '').trim()
+  const template = String(body.template || '').trim()
+  const uploadPath = String(body.uploadPath || '').trim()
   const datasetId = body.datasetId ? Number(body.datasetId) : null
 
   if (!name) throw new ApiError(422, 'VALIDATION_ERROR', '请输入项目名称')
@@ -61,6 +74,7 @@ export function createProject(user, body) {
     sampleCount: Number.isFinite(sampleCount) && sampleCount > 0 ? sampleCount : 0,
     deadline: deadline || '-',
     status: 'active', description,
+    template, uploadPath,
     datasetId,
     createdAt: nowText(), updatedAt: nowText()
   }
@@ -90,7 +104,7 @@ export function updateProject(user, projectId, body) {
   requireBuyer(user)
   const project = projects.find(p => p.id === projectId)
   if (!project) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
-  const updatable = ['name', 'clientName', 'annotateType', 'deadline', 'description']
+  const updatable = ['name', 'clientName', 'annotateType', 'deadline', 'description', 'template', 'uploadPath']
   for (const key of updatable) {
     if (body[key] !== undefined) project[key] = String(body[key]).trim()
   }
@@ -188,6 +202,7 @@ export function splitProjectDataset(user, projectId, body) {
       id: baseTaskId + taskIdx,
       taskName,
       nanoId: `T${String(taskIdx).padStart(3, '0')}`,
+      uploadPath: project.uploadPath || '',
       annotateType: project.annotateType || '2D拉框',
       state: 'UNASSIGNED',
       deadline: project.deadline || '-',
@@ -280,5 +295,7 @@ export function archiveProject(user, projectId) {
   project.updatedAt = nowText()
 
   auditLogs.push({ action: 'project.archive', actorId: user.id, projectId, datasetId: ds.id, itemCount: acceptedItems.length, taskCount: acceptedTasks.length, at: nowText() })
+  // 推送飞书
+  import('./feishu.js').then(m => m.pushProjectSummary(user, projectId)).catch(() => {})
   return { archivedDataset: { id: ds.id, name: ds.name, itemCount: ds.itemCount, taskCount: acceptedTasks.length } }
 }

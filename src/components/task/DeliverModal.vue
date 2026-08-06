@@ -17,7 +17,7 @@
     >
       <Box size="40" />
       <div class="text">点击或拖拽文件到此处上传</div>
-      <div class="tip">支持 zip/tar.gz/7z，生产环境建议改为对象存储直传</div>
+      <div class="tip">支持 zip/tar.gz/7z，数据包必传，为空不允许提交</div>
     </el-upload>
 
     <div v-if="fileInfo" class="file-row">
@@ -28,9 +28,8 @@
       <el-input
         v-model="submitDesc"
         type="textarea"
-        :minlength="20"
         rows="3"
-        placeholder="标注工具版本、特殊处理说明、已知问题（至少20字）"
+        placeholder="标注工具版本、特殊处理说明、已知问题（选填，任意字数）"
       ></el-input>
     </el-form-item>
 
@@ -43,7 +42,7 @@
       <el-button
         type="primary"
         :loading="loading"
-        :disabled="!fileInfo || !checkRule || submitDesc.length < 20"
+        :disabled="!fileInfo || !checkRule"
         @click="submitDeliver"
       >
         确认提交
@@ -93,10 +92,11 @@ const handleFileRemove = () => {
 }
 
 const submitDeliver = async () => {
+  const file = fileInfo.value
+  if (!file) { ElMessage.warning('请先上传数据包文件'); return }
   loading.value = true
   try {
     // 读取文件为 base64 发送
-    const file = fileInfo.value
     const reader = new FileReader()
     const fileData = await new Promise((resolve, reject) => {
       reader.onload = () => {

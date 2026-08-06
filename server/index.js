@@ -10,21 +10,21 @@ import { issueToken, requireAuth } from './lib/auth.js'
 import { ApiError, created, fail, ok, readJson, sendJson } from './lib/http.js'
 import { users, submissions } from './repositories/data.js'
 import { loginByFeishuCode } from './services/auth.js'
-import { createFeishuQrSession, pollFeishuSession, scanFeishuQr } from './services/feishu.js'
-import { acceptTask, createTask, dispatchTask, getTaskDetail, listSuppliers, listTasks, reviewTask, submitTask, updateTask, deleteTask, importProjectTasks, completeWork } from './services/tasks.js'
+import { createFeishuQrSession, pollFeishuSession, scanFeishuQr, getWebhookConfig, setWebhookConfig, sendFeishu, pushProjectSummary } from './services/feishu.js'
+import { acceptTask, createTask, dispatchTask, getTaskDetail, listSuppliers, listTasks, reviewTask, submitTask, updateTask, deleteTask, importProjectTasks, completeWork, uploadTaskPackage } from './services/tasks.js'
 import { getProjectStats, updateProjectCount, listProjects, createProject, updateProjectStatus, updateProject, importProjects, getProjectDetail, deleteProject, splitProjectDataset, archiveProject } from './services/projects.js'
 import { getDashboardData } from './services/dashboard.js'
 import { authLimiter, apiLimiter } from './lib/rate-limiter.js'
 import { getTaskItems, updateItemStatus, uploadScreenshot, updateItemStatusBatch, importTaskItems, uploadItemPackage, deleteTaskItem } from './services/items.js'
 import { loadStore, saveStore } from './repositories/store.js'
 import { seedDemoData } from './services/seed.js'
-import { getWorkbenchQueue, claimItem, saveAnnotation, submitItem, vendorQaItem, clientQaItem, batchQaItems } from './services/workbench.js'
+import { getWorkbenchQueue, claimItem, claimQaTask, releaseQaTask, saveAnnotation, submitItem, vendorQaItem, clientQaItem, batchQaItems } from './services/workbench.js'
 import { heartbeat, myTiming } from './services/timing.js'
 import { generateSettlement, listSettlements, confirmSettlement, exportSettlementCsv } from './services/settlement.js'
 import { getNotifications, markRead, markAllRead } from './services/notifications.js'
 import { listDatasets, getDatasetItems, exportDataset } from './services/datasets.js'
 import { getScenarioDimensions, saveScenarioDimension, deleteScenarioDimension, getTaggingQueue, saveItemTags, batchSaveTags } from './services/tagging.js'
-import { importDataset, listGovernedDatasets, getDatasetDetail, updateDatasetStatus, tagGovernedItem, batchTagGovernedItems, seedGovernanceDemo, previewSplit } from './services/governance.js'
+import { importDataset, listGovernedDatasets, getDatasetDetail, updateDatasetStatus, tagGovernedItem, batchTagGovernedItems, seedGovernanceDemo, previewSplit, deleteDataset, deleteGovernedItem, importDatasetFromFile } from './services/governance.js'
 
 function setCors(req, res) {
   const origin = req.headers.origin
@@ -195,6 +195,19 @@ async function handle(req, res) {
     return created(res, importProjectTasks(user, Number(RegExp.$1), body))
   }
 
+  if (req.method === 'POST' && normalizedPath.match(/^\/api\/projects\/(\d+)\/tasks\/import-file$/)) {
+    const body = await readJson(req, config.maxBodyBytes)
+    const { parseTaskExcel } = await import('./services/excel.js')
+    const result = await parseTaskExcel(user, body)
+    if (!result.tasks || !result.tasks.length) throw new ApiError(422, 'VALIDATION_ERROR', '未解析到任务')
+    let imported = 0
+    for (const t of result.tasks) {
+      await import('./services/tasks.js').then(m => m.createTask(user, { ...t, projectId: Number(RegExp.$1) }))
+      imported++
+    }
+    return created(res, { imported })
+  }
+
   if (req.method === 'PUT' && normalizedPath.match(/^\/api\/projects\/(\d+)\/status$/)) {
     const body = await readJson(req, config.maxBodyBytes)
     return ok(res, updateProjectStatus(user, Number(RegExp.$1), body))
@@ -239,6 +252,11 @@ async function handle(req, res) {
   if (req.method === 'POST' && r.taskDispatch) {
     const body = await readJson(req, config.maxBodyBytes)
     return ok(res, dispatchTask(user, Number(r.taskDispatch[1]), body))
+  }
+
+  if (req.method === 'POST' && normalizedPath.match(/^\/api\/tasks\/(\d+)\/package$/)) {
+    const body = await readJson(req, config.maxBodyBytes)
+    return ok(res, uploadTaskPackage(user, Number(RegExp.$1), body))
   }
   if (req.method === 'POST' && r.taskAccept) return ok(res, acceptTask(user, Number(r.taskAccept[1])))
   if (req.method === 'POST' && r.taskComplete) return ok(res, completeWork(user, Number(r.taskComplete[1])))
@@ -310,6 +328,12 @@ async function handle(req, res) {
     return created(res, importTaskItems(Number(RegExp.$1), body))
   }
 
+  if (req.method === 'POST' && normalizedPath.match(/^\/api\/tasks\/(\d+)\/items\/import-file$/)) {
+    const body = await readJson(req, config.maxBodyBytes)
+    const { importTaskItemsFromFile } = await import('./services/items.js')
+    return created(res, await importTaskItemsFromFile(Number(RegExp.$1), body))
+  }
+
   if (req.method === 'POST' && normalizedPath.match(/^\/api\/tasks\/(\d+)\/items\/(\d+)\/package$/)) {
     const body = await readJson(req, config.maxBodyBytes)
     return ok(res, uploadItemPackage(Number(RegExp.$1), Number(RegExp.$2), body))
@@ -326,6 +350,14 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && normalizedPath.match(/^\/api\/items\/(\d+)\/claim$/)) {
     return ok(res, claimItem(user, Number(RegExp.$1)))
+  }
+
+  if (req.method === 'POST' && normalizedPath.match(/^\/api\/tasks\/(\d+)\/qa-claim$/)) {
+    return ok(res, claimQaTask(user, Number(RegExp.$1)))
+  }
+
+  if (req.method === 'POST' && normalizedPath.match(/^\/api\/tasks\/(\d+)\/qa-release$/)) {
+    return ok(res, releaseQaTask(user, Number(RegExp.$1)))
   }
 
   if (req.method === 'PUT' && normalizedPath.match(/^\/api\/items\/(\d+)\/annotation$/)) {
@@ -405,6 +437,82 @@ async function handle(req, res) {
     return ok(res, markAllRead(user))
   }
 
+  // ===== 飞书 Webhook =====
+  if (r.is(['GET', '/api/feishu/webhook'])) {
+    return ok(res, getWebhookConfig(user))
+  }
+
+  if (r.is(['POST', '/api/feishu/webhook'])) {
+    const body = await readJson(req, config.maxBodyBytes)
+    return ok(res, setWebhookConfig(user, body))
+  }
+
+  if (r.is(['POST', '/api/feishu/push'])) {
+    const body = await readJson(req, config.maxBodyBytes)
+    const cfg = getWebhookConfig(user)
+    const targetIndex = body.webhookIndex !== undefined ? Number(body.webhookIndex) : -1
+    const targets = targetIndex >= 0 && targetIndex < cfg.webhooks.length ? [cfg.webhooks[targetIndex].url] : null
+    try {
+      const result = await sendFeishu(body.title || '手动推送', body.content || '来自数据平台的消息', targets)
+      return ok(res, result)
+    } catch (e) {
+      return ok(res, { sent: false, reason: e.message })
+    }
+  }
+
+  // 推送项目摘要
+  if (req.method === 'POST' && normalizedPath.match(/^\/api\/feishu\/project-summary\/(\d+)$/)) {
+    const result = await pushProjectSummary(user, Number(RegExp.$1))
+    return ok(res, result)
+  }
+
+  // ===== Excel 解析 =====
+  if (r.is(['POST', '/api/projects/parse-excel'])) {
+    const body = await readJson(req, config.maxBodyBytes)
+    const { parseTaskExcel } = await import('./services/excel.js')
+    return ok(res, parseTaskExcel(user, body))
+  }
+
+  // ===== 用户管理（PM 创建个人账号）=====
+  if (r.is(['GET', '/api/users'])) {
+    const { listUsers } = await import('./services/users.js')
+    return ok(res, listUsers(user))
+  }
+
+  if (r.is(['POST', '/api/users'])) {
+    const body = await readJson(req, config.maxBodyBytes)
+    const { createUser } = await import('./services/users.js')
+    return created(res, createUser(user, body))
+  }
+
+  if (req.method === 'PUT' && normalizedPath.match(/^\/api\/users\/(\d+)$/)) {
+    const body = await readJson(req, config.maxBodyBytes)
+    const { updateUser } = await import('./services/users.js')
+    return ok(res, updateUser(user, Number(RegExp.$1), body))
+  }
+
+  if (req.method === 'DELETE' && normalizedPath.match(/^\/api\/users\/(\d+)$/)) {
+    const { deleteUser } = await import('./services/users.js')
+    return ok(res, deleteUser(user, Number(RegExp.$1)))
+  }
+
+  // ===== 系统日志 =====
+  if (r.is(['GET', '/api/admin/logs'])) {
+    const { auditLogs, users } = await import('./repositories/data.js')
+    const page = Math.max(Number(url.searchParams.get('page') || 1), 1)
+    const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize') || 30), 1), 200)
+    const typeFilter = String(url.searchParams.get('type') || '').trim()
+    let list = auditLogs.slice().sort((a, b) => new Date(b.at||0) - new Date(a.at||0))
+    if (typeFilter) list = list.filter(l => l.action && l.action.includes(typeFilter))
+    const total = list.length
+    const start = (page - 1) * pageSize
+    const items = list.slice(start, start + pageSize).map(l => {
+      const u = users.find(x => x.id === l.actorId)
+      return { ...l, actorName: u?.userName || '未知' }
+    })
+    return ok(res, items, { total })
+  }
+
   // ===== 数据集管理（PRD 算法视角：数据资产）=====
   if (r.is(['GET', '/api/datasets'])) {
     return ok(res, listDatasets(user))
@@ -473,6 +581,12 @@ async function handle(req, res) {
     return created(res, importDataset(user, body))
   }
 
+  if (r.is(['POST', '/api/governance/import-file'])) {
+    const body = await readJson(req, config.maxBodyBytes)
+    const result = await importDatasetFromFile(user, body)
+    return created(res, result)
+  }
+
   if (req.method === 'PUT' && normalizedPath.match(/^\/api\/governance\/datasets\/(\d+)\/status$/)) {
     const body = await readJson(req, config.maxBodyBytes)
     return ok(res, updateDatasetStatus(user, Number(RegExp.$1), body))
@@ -486,6 +600,14 @@ async function handle(req, res) {
   if (r.is(['POST', '/api/governance/items/batch-tag'])) {
     const body = await readJson(req, config.maxBodyBytes)
     return ok(res, batchTagGovernedItems(user, body))
+  }
+
+  if (req.method === 'DELETE' && normalizedPath.match(/^\/api\/governance\/datasets\/(\d+)$/)) {
+    return ok(res, deleteDataset(user, Number(RegExp.$1)))
+  }
+
+  if (req.method === 'DELETE' && normalizedPath.match(/^\/api\/governance\/items\/(\d+)$/)) {
+    return ok(res, deleteGovernedItem(user, Number(RegExp.$1)))
   }
 
   console.warn('No route matched:', {
@@ -567,6 +689,9 @@ if (!loadStore()) {
 // 数据治理种子（无论是否已持久化都要补注入，仅首次时创建）
 seedGovernanceDemo()
 saveStore()
+
+// 截止时间提醒（提前2天推送飞书）
+import('./services/deadline-reminder.js').then(m => m.startDeadlineReminder()).catch(() => {})
 
 process.on('uncaughtException', error => {
   console.error('UNCAUGHT_EXCEPTION', { message: error.message, stack: error.stack })

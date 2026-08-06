@@ -3,7 +3,7 @@
     <el-card class="filter-card" shadow="never">
       <el-row :gutter="16">
         <el-col :span="6">
-          <el-input v-model="searchKey" placeholder="搜索名称/ID/NanoID" clearable @input="onSearchChange" @clear="onSearchChange" />
+          <el-input v-model="searchKey" placeholder="搜索名称/ID" clearable @input="onSearchChange" @clear="onSearchChange" />
         </el-col>
         <el-col :span="4">
           <el-select v-model="stateFilter" placeholder="任务状态" clearable @change="onFilterChange">
@@ -17,7 +17,7 @@
             <el-option label="即将超时" value="urgent" />
           </el-select>
         </el-col>
-        <el-col :span="3"><el-button type="primary" @click="$router.push('/supplier/projects')">项目管理</el-button></el-col>
+        <el-col :span="3"><el-button v-if="userRole === 1" type="primary" @click="$router.push('/supplier/projects')">项目管理</el-button></el-col>
       </el-row>
     </el-card>
 
@@ -38,7 +38,6 @@
             <el-tag v-else-if="warnLevel(scope.row) === 1" type="" size="small">临近</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="Nano ID" prop="nanoId" width="90" />
         <el-table-column label="任务名称" prop="taskName" min-width="160" show-overflow-tooltip />
         <el-table-column label="类型" prop="annotateType" width="110" />
         <el-table-column label="供应商" prop="supplierName" width="100">
@@ -82,7 +81,6 @@
     <el-dialog v-model="createVisible" title="新建标注任务" width="640px" @closed="resetCreateForm">
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="100px">
         <el-form-item label="任务名称" prop="taskName"><el-input v-model="createForm.taskName" maxlength="100" /></el-form-item>
-        <el-form-item label="Nano ID"><el-input v-model="createForm.nanoId" placeholder="ND001" /></el-form-item>
         <el-form-item label="标注类型" prop="annotateType">
           <el-select v-model="createForm.annotateType" style="width:100%">
             <el-option v-for="t in annotateTypes" :key="t" :label="t" :value="t" />
@@ -105,7 +103,6 @@
     <el-dialog v-model="editVisible" title="编辑任务" width="640px">
       <el-form ref="editFormRef" :model="editForm" :rules="createRules" label-width="100px">
         <el-form-item label="任务名称" prop="taskName"><el-input v-model="editForm.taskName" /></el-form-item>
-        <el-form-item label="Nano ID"><el-input v-model="editForm.nanoId" /></el-form-item>
         <el-form-item label="标注类型" prop="annotateType"><el-select v-model="editForm.annotateType" style="width:100%"><el-option v-for="t in annotateTypes" :key="t" :label="t" :value="t" /></el-select></el-form-item>
         <el-form-item label="样本数量" prop="sampleCount"><el-input-number v-model="editForm.sampleCount" :min="1" style="width:100%" /></el-form-item>
         <el-form-item label="单价" prop="unitPrice"><el-input-number v-model="editForm.unitPrice" :min="0.01" :precision="2" style="width:100%" /></el-form-item>
@@ -138,6 +135,24 @@
     </el-dialog>
 
     <DeliverModal v-model:visible="deliverModalVisible" :task-info="currentTask" @success="loadTaskList" />
+
+    <!-- 批量提交成果弹窗（数据包必传） -->
+    <el-dialog v-model="batchDeliverVisible" title="批量提交成果" width="520px" @closed="resetBatchDeliver">
+      <el-alert type="info" :closable="false" style="margin-bottom:16px"><template #title>将批量提交 {{ selectedRows.length }} 个任务，需选择数据包文件（各任务共用同一数据包）</template></el-alert>
+      <el-upload drag :limit="1" :auto-upload="false" :on-change="onBatchFileChange" :on-remove="onBatchFileRemove" :file-list="batchFileList" accept=".zip,.tar.gz,.7z" style="margin-bottom:12px">
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">拖拽数据包或<em>点击上传</em></div>
+        <template #tip><div class="el-upload__tip">支持 zip/tar.gz/7z，数据包必传，为空不允许提交</div></template>
+      </el-upload>
+      <div v-if="batchFile" class="batch-file-row">已选择：{{ batchFile.name }}（{{ (batchFile.size / 1024).toFixed(1) }} KB）</div>
+      <el-form-item label="提交备注">
+        <el-input v-model="batchDesc" type="textarea" :rows="2" placeholder="选填，任意字数" />
+      </el-form-item>
+      <template #footer>
+        <el-button @click="batchDeliverVisible = false">取消</el-button>
+        <el-button type="primary" :loading="actionLoading" :disabled="!batchFile" @click="confirmBatchSubmit">确认提交</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -165,11 +180,12 @@ const tableRef = ref(null)
 const annotateTypes = ['2D拉框', '3D点云标注', '语义分割', '车道线标注', 'Vslam', '数据闭环', 'CNN', 'AEB', 'OBJ']
 
 const currentTask = ref({}); const deliverModalVisible = ref(false)
+const batchDeliverVisible = ref(false); const batchFile = ref(null); const batchDesc = ref(''); const batchFileList = ref([])
 const createVisible = ref(false); const editVisible = ref(false); const dispatchVisible = ref(false); const reviewVisible = ref(false)
 
 const createFormRef = ref(null); const editFormRef = ref(null); const dispatchFormRef = ref(null); const reviewFormRef = ref(null)
-const createForm = reactive({ taskName: '', nanoId: '', annotateType: '', sampleCount: null, unitPrice: null, deadline: '', qaStandard: '' })
-const editForm = reactive({ id: null, taskName: '', nanoId: '', annotateType: '', sampleCount: null, unitPrice: null, deadline: '', qaStandard: '' })
+const createForm = reactive({ taskName: '', annotateType: '', sampleCount: null, unitPrice: null, deadline: '', qaStandard: '' })
+const editForm = reactive({ id: null, taskName: '', annotateType: '', sampleCount: null, unitPrice: null, deadline: '', qaStandard: '' })
 const dispatchForm = reactive({ supplierId: null, immediateStart: false })
 const reviewForm = reactive({ pass: true, score: null, comment: '', rejectReason: '' })
 const dataPackage = ref(null); const packageFileList = ref([])
@@ -232,9 +248,7 @@ const onSelectionChange = (rows) => { selectedRows.value = rows }
 
 const batchOp = async () => {
   if (batchBtnText.value.includes('提交')) {
-    for (const row of selectedRows.value) { await submitTaskApi(row.id, { fileName: 'batch-submit.zip', submitDesc: '批量提交' }) }
-    ElMessage.success(`批量提交 ${selectedRows.value.length} 条完成`)
-    loadTaskList()
+    openBatchDeliver()
   } else if (batchBtnText.value.includes('验收')) {
     for (const row of selectedRows.value) { await reviewTaskApi(row.id, { pass: true, score: 100, comment: '批量验收通过', rejectReason: '' }) }
     ElMessage.success(`批量验收 ${selectedRows.value.length} 条`)
@@ -243,7 +257,7 @@ const batchOp = async () => {
 }
 
 // Form operations (abbreviated - same core logic as before)
-const resetCreateForm = () => { createFormRef.value?.resetFields(); Object.assign(createForm, { taskName: '', nanoId: '', annotateType: '', sampleCount: null, unitPrice: null, deadline: '', qaStandard: '' }); dataPackage.value = null; packageFileList.value = [] }
+const resetCreateForm = () => { createFormRef.value?.resetFields(); Object.assign(createForm, { taskName: '', annotateType: '', sampleCount: null, unitPrice: null, deadline: '', qaStandard: '' }); dataPackage.value = null; packageFileList.value = [] }
 const openCreate = () => { createVisible.value = true }
 
 const handlePackageChange = (file) => {
@@ -263,7 +277,7 @@ const submitCreate = async () => {
   } finally { actionLoading.value = false }
 }
 
-const openEdit = (row) => { Object.assign(editForm, { id: row.id, taskName: row.taskName, nanoId: row.nanoId || '', annotateType: row.annotateType, sampleCount: row.sampleCount, unitPrice: row.unitPrice, deadline: row.deadline, qaStandard: row.qaStandard?.replace(/<[^>]*>/g, '') || '' }); editVisible.value = true }
+const openEdit = (row) => { Object.assign(editForm, { id: row.id, taskName: row.taskName, annotateType: row.annotateType, sampleCount: row.sampleCount, unitPrice: row.unitPrice, deadline: row.deadline, qaStandard: row.qaStandard?.replace(/<[^>]*>/g, '') || '' }); editVisible.value = true }
 
 const submitEdit = async () => {
   try { await editFormRef.value.validate() } catch { return }
@@ -289,6 +303,26 @@ const completeWork = async (row) => { await completeWorkApi(row.id); ElMessage.s
 
 const openDeliver = (row) => { currentTask.value = row; deliverModalVisible.value = true }
 
+// 批量提交：必须先选择数据包文件
+const resetBatchDeliver = () => { batchFile.value = null; batchDesc.value = ''; batchFileList.value = [] }
+const openBatchDeliver = () => { resetBatchDeliver(); batchDeliverVisible.value = true }
+const onBatchFileChange = (file) => { batchFile.value = file.raw || file; batchFileList.value = [file] }
+const onBatchFileRemove = () => { batchFile.value = null; batchFileList.value = [] }
+const confirmBatchSubmit = async () => {
+  const file = batchFile.value
+  if (!file) { ElMessage.warning('请先选择数据包文件'); return }
+  actionLoading.value = true
+  try {
+    const b64 = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file) })
+    for (const row of selectedRows.value) {
+      await submitTaskApi(row.id, { fileName: file.name, fileSize: file.size, fileData: b64, submitDesc: batchDesc.value })
+    }
+    ElMessage.success(`批量提交 ${selectedRows.value.length} 条完成`)
+    batchDeliverVisible.value = false
+    loadTaskList()
+  } catch { ElMessage.error('批量提交失败') } finally { actionLoading.value = false }
+}
+
 const openReview = (row) => {
   currentTask.value = row; reviewForm.pass = true; reviewForm.score = null; reviewForm.comment = ''; reviewForm.rejectReason = ''
   reviewVisible.value = true
@@ -313,4 +347,5 @@ onMounted(() => {
 .filter-card { margin-bottom: 16px; }
 .table-header { display: flex; justify-content: space-between; align-items: center; }
 .pagination-wrap { margin-top: 16px; display: flex; align-items: center; }
+.batch-file-row { padding: 8px 12px; background: #f0f9eb; border-radius: 4px; margin-bottom: 16px; font-size: 13px; color: #67c23a; }
 </style>

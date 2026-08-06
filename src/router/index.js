@@ -15,15 +15,16 @@ const routes = [
     children: [
       { path: '/dashboard', name: 'Dashboard', component: () => import('@/views/dashboard/index.vue'), meta: { title: '仪表盘' } },
       { path: '/workbench/:taskId?', name: 'Workbench', component: () => import('@/views/workbench/index.vue'), meta: { title: '标注工作台', roles: [3, 4] } },
-      { path: '/qa', name: 'QaWorkbench', component: () => import('@/views/workbench/qa.vue'), meta: { title: '质检工作台', roles: [2, 5] } },
-      { path: '/dataset', name: 'Dataset', component: () => import('@/views/dataset/index.vue'), meta: { title: '数据集管理', roles: [1, 6, 7] } },
-      { path: '/governance', name: 'Governance', component: () => import('@/views/governance/index.vue'), meta: { title: '数据治理中心', roles: [1, 6, 7] } },
+      { path: '/qa', name: 'QaWorkbench', component: () => import('@/views/workbench/qa.vue'), meta: { title: '质检工作台', roles: [2, 3] } },
+      { path: '/dataset', name: 'Dataset', component: () => import('@/views/dataset/index.vue'), meta: { title: '数据管理中心', roles: [1, 6, 7] } },
+      { path: '/admin/users', name: 'AdminUsers', component: () => import('@/views/admin/users.vue'), meta: { title: '用户管理', roles: [1] } },
+      { path: '/admin/logs', name: 'AdminLogs', component: () => import('@/views/admin/logs.vue'), meta: { title: '系统日志', roles: [1] } },
       { path: '/task', name: 'TaskList', component: () => import('@/views/task/list.vue'), meta: { title: '任务管理' } },
       { path: '/task/detail/:id', name: 'TaskDetail', component: () => import('@/views/task/detail.vue'), meta: { title: '任务详情' } },
       { path: '/message', name: 'Message', component: () => import('@/views/message/index.vue'), meta: { title: '消息中心' } },
-      { path: '/supplier/dashboard', name: 'SupplierDashboard', component: () => import('@/views/supplier/dashboard.vue'), meta: { title: '供应商门户', roles: [3, 4, 5] } },
+      { path: '/supplier/dashboard', name: 'SupplierDashboard', component: () => import('@/views/supplier/dashboard.vue'), meta: { title: '供应商门户', roles: [3, 4] } },
       { path: '/supplier/list', name: 'SupplierList', component: () => import('@/views/supplier/list.vue'), meta: { title: '供应商列表', roles: [1] } },
-      { path: '/supplier/projects', name: 'ProjectManage', component: () => import('@/views/supplier/projects.vue'), meta: { title: '项目管理', roles: [1] } },
+      { path: '/supplier/projects', name: 'ProjectManage', component: () => import('@/views/supplier/projects.vue'), meta: { title: '项目管理', roles: [1, 7] } },
       { path: '/supplier/performance', name: 'Performance', component: () => import('@/views/supplier/performance.vue'), meta: { title: '绩效分析', roles: [3] } },
       { path: '/finance/bill', name: 'FinanceBill', component: () => import('@/views/finance/bill.vue'), meta: { title: '财务管理' } }
     ]

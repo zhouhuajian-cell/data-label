@@ -101,6 +101,12 @@ async function loadData() {
   initError(data.errorTop || [])
 }
 
+function initError(d) {
+  if (!errorChartRef.value) return
+  errorChart = echarts.init(errorChartRef.value)
+  errorChart.setOption({ tooltip: { trigger: 'item' }, legend: { bottom: 0 }, series: [{ type: 'pie', radius: '60%', data: d.length ? d : [{ name: '暂无', value: 1 }], label: { formatter: '{b}: {c}' } }] })
+}
+
 function initPie(d) {
   if (!pieChartRef.value) return
   pieChart = echarts.init(pieChartRef.value)
@@ -109,15 +115,6 @@ function initPie(d) {
     series: [{ type: 'pie', radius: ['40%', '70%'], data: Object.entries(d).filter(([k]) => k !== 'overdue').map(([k, v]) => ({ name: STATUS_LABELS[k] || k, value: v })), label: { formatter: '{b}: {c}' } }]
   })
 }
-function initError(d) {
-  if (!errorChartRef.value) return
-  errorChart = echarts.init(errorChartRef.value)
-  errorChart.setOption({
-    tooltip: { trigger: 'item' }, legend: { bottom: 0 },
-    series: [{ type: 'pie', radius: '60%', data: d.length ? d : [{ name: '暂无', value: 1 }], label: { formatter: '{b}: {c}' } }]
-  })
-}
-
 function handleResize() { pieChart?.resize(); errorChart?.resize() }
 onMounted(() => { loadData(); window.addEventListener('resize', handleResize) })
 onUnmounted(() => { window.removeEventListener('resize', handleResize); pieChart?.dispose(); errorChart?.dispose() })

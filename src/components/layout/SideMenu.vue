@@ -24,7 +24,7 @@
         <el-badge v-if="userStore.pendingTaskCount" :value="userStore.pendingTaskCount" />
       </el-menu-item>
 
-      <el-menu-item v-if="[3,4,5].includes(userStore.userInfo.roleType)" index="/supplier/dashboard">
+      <el-menu-item v-if="[3,4].includes(userStore.userInfo.roleType)" index="/supplier/dashboard">
         <template #icon><HomeFilled /></template>
         <template #title>供应商门户</template>
         <el-badge v-if="userStore.unReadMsg" :value="userStore.unReadMsg" type="danger" />
@@ -35,22 +35,17 @@
         <template #title>标注工作台</template>
       </el-menu-item>
 
-      <el-menu-item v-if="[2, 5].includes(userStore.userInfo.roleType)" index="/qa">
+      <el-menu-item v-if="userStore.userInfo.roleType === 2" index="/qa">
         <template #icon><Select /></template>
         <template #title>质检工作台</template>
       </el-menu-item>
 
-      <el-menu-item v-if="[1, 6, 7].includes(userStore.userInfo.roleType)" index="/governance">
-        <template #icon><DataAnalysis /></template>
-        <template #title>数据治理中心</template>
-      </el-menu-item>
-
       <el-menu-item v-if="[1, 6, 7].includes(userStore.userInfo.roleType)" index="/dataset">
         <template #icon><Coin /></template>
-        <template #title>数据集管理</template>
+        <template #title>数据管理中心</template>
       </el-menu-item>
 
-      <el-menu-item v-if="userStore.userInfo.roleType === 1" index="/supplier/projects">
+      <el-menu-item v-if="[1, 7].includes(userStore.userInfo.roleType)" index="/supplier/projects">
         <template #icon><FolderOpened /></template>
         <template #title>项目管理</template>
       </el-menu-item>
@@ -61,7 +56,7 @@
         <el-badge v-if="userStore.pendingTaskCount" :value="userStore.pendingTaskCount" />
       </el-menu-item>
 
-      <el-menu-item v-if="userStore.token && ![1, 3, 4, 5].includes(userStore.userInfo.roleType)" index="/task">
+      <el-menu-item v-if="userStore.token && ![1, 2, 3, 4].includes(userStore.userInfo.roleType)" index="/task">
         <template #icon><Document /></template>
         <template #title>任务管理</template>
       </el-menu-item>
@@ -78,6 +73,16 @@
         <el-menu-item index="/supplier/list">供应商列表</el-menu-item>
         <el-menu-item index="/finance/bill">结算管理</el-menu-item>
       </el-sub-menu>
+
+      <el-menu-item v-if="userStore.userInfo.roleType === 1" index="/admin/users">
+        <template #icon><User /></template>
+        <template #title>用户管理</template>
+      </el-menu-item>
+
+      <el-menu-item v-if="userStore.userInfo.roleType === 1" index="/admin/logs">
+        <template #icon><List /></template>
+        <template #title>系统日志</template>
+      </el-menu-item>
 
       <el-sub-menu v-if="userStore.userInfo.roleType === 3" index="supplier-mine">
         <template #icon><User /></template>
@@ -106,7 +111,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { useUserStore } from '@/store/user'
-import { DataLine, ArrowLeft, DataBoard, Document, FolderOpened, Message, OfficeBuilding, User, EditPen, Select, HomeFilled, Coin, DataAnalysis } from '@element-plus/icons-vue'
+import { DataLine, ArrowLeft, DataBoard, Document, FolderOpened, Message, OfficeBuilding, User, EditPen, Select, HomeFilled, Coin, List } from '@element-plus/icons-vue'
 const userStore = useUserStore()
 const isFold = ref(localStorage.getItem('sidebarFold') === '1')
 

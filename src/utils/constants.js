@@ -27,16 +27,14 @@ export const ROLE_TYPE = {
   CLIENT_QA: 2,
   VENDOR_TL: 3,
   ANNOTATOR: 4,
-  VENDOR_QA: 5,
   ALGO_ENG: 6
 }
 
 export const ROLE_LABELS = {
   1: '甲方项目经理',
   2: '甲方质检员',
-  3: '供应商团队长',
+  3: '供应商团队长（含质检）',
   4: '标注员',
-  5: '供应商质检员',
   6: '算法工程师',
   7: '数据清洗人员'
 }

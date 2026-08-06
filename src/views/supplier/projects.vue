@@ -51,8 +51,11 @@
         </div>
 
         <div class="list-footer">
-          <el-button :icon="Upload" @click="openImport" style="flex:1">批量导入</el-button>
-          <el-button type="primary" :icon="Plus" @click="openCreate" style="flex:1">新建项目</el-button>
+          <template v-if="isAdminLike">
+            <el-button :icon="Upload" @click="openImport" style="flex:1">批量导入</el-button>
+            <el-button type="primary" :icon="Plus" @click="openCreate" style="flex:1">新建项目</el-button>
+          </template>
+          <el-button v-else style="flex:1" disabled>供应商只读视图</el-button>
         </div>
       </div>
 
@@ -70,16 +73,19 @@
                 <el-descriptions-item label="标注类型">{{ selectedProject.annotateType }}</el-descriptions-item>
                 <el-descriptions-item label="样本量">{{ selectedProject.sampleCount?.toLocaleString() || 0 }}</el-descriptions-item>
                 <el-descriptions-item label="截止">{{ selectedProject.deadline }}</el-descriptions-item>
+                <el-descriptions-item v-if="selectedProject.template" label="项目模板">{{ selectedProject.template }}</el-descriptions-item>
+                <el-descriptions-item v-if="selectedProject.uploadPath" label="数据上传路径">{{ selectedProject.uploadPath }}</el-descriptions-item>
               </el-descriptions>
               <div v-if="selectedProject.description" class="ph-desc-text">{{ selectedProject.description }}</div>
             </div>
-            <div class="ph-actions">
+            <div class="ph-actions" v-if="isAdminLike">
               <el-button size="small" :icon="Edit" @click="openEditProject(selectedProject)">编辑</el-button>
               <el-select :model-value="selectedProject.status" size="small" style="width:104px" @change="(v) => handleStatusChange(selectedProject, v)">
                 <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
               </el-select>
               <el-button size="small" type="danger" plain :icon="Delete" @click="deleteProject(selectedProject)">删除</el-button>
               <el-button v-if="selectedProject.status === 'active'" size="small" type="success" :icon="Finished" @click="onArchiveProject">结项归档</el-button>
+              <el-button size="small" :icon="Promotion" @click="onPushFeishu">推送飞书</el-button>
             </div>
           </el-card>
 
@@ -88,11 +94,15 @@
             <div class="tp-toolbar">
               <div class="tp-title">任务明细</div>
               <div class="tp-actions">
-                <el-button v-if="selectedTasks.length" size="small" type="warning" plain :icon="Promotion" @click="openBatchDispatch">
-                  批量派发 ({{ selectedTasks.length }})
-                </el-button>
-                <el-button size="small" :icon="Upload" @click="openImportTasks(selectedProject)">导入任务</el-button>
-                <el-button size="small" type="primary" plain :icon="Plus" @click="openAddTask(selectedProject)">添加任务</el-button>
+                <template v-if="isAdminLike">
+                  <el-button v-if="selectedTasks.length" size="small" type="warning" plain :icon="Promotion" @click="openBatchDispatch">
+                    批量派发 ({{ selectedTasks.length }})
+                  </el-button>
+                  <el-button size="small" :icon="Upload" @click="openImportTasks(selectedProject)">导入任务</el-button>
+                  <el-button size="small" type="primary" plain :icon="Plus" @click="openAddTask(selectedProject)">添加任务</el-button>
+                </template>
+                <el-button v-if="!isAdminLike" size="small" type="success" :icon="Upload" @click="openDeliverForSelected">提交交付</el-button>
+                <el-button v-if="!isAdminLike && selectedTasks.some(t => t.state === 'ACCEPTED')" size="small" type="warning" :icon="Promotion" @click="goSettlement">结算</el-button>
               </div>
             </div>
 
@@ -111,8 +121,8 @@
             <el-table :data="filteredDetailTasks" border size="small" row-key="id"
               :row-class-name="taskRowClass"
               @selection-change="onSelectionChange"
-              @expand-change="(row) => loadItems(row)">
-              <el-table-column type="selection" width="40" :selectable="row => ['UNASSIGNED','REJECTED'].includes(row.state)" />
+              @expand-change="handleExpand">
+              <el-table-column type="selection" width="40" :selectable="row => isAdminLike ? ['UNASSIGNED','REJECTED'].includes(row.state) : ['VENDOR_QA','REJECTED','CLIENT_QA','ACCEPTED'].includes(row.state)" />
               <el-table-column type="expand">
                 <template #default="scope">
                   <div v-loading="itemsLoading[scope.row.id]" class="items-section">
@@ -121,10 +131,14 @@
                         {{ label }}: {{ itemsByStatus(scope.row.id, code) }}
                       </el-tag>
                       <el-button size="small" type="primary" plain @click="batchUpdateItems(scope.row)">批量已标注</el-button>
-                      <el-button size="small" text type="primary" @click="openImportItems(scope.row)">+ 导入明细</el-button>
+                      <el-button size="small" :icon="Upload" @click="openImportItems(scope.row)">导入明细</el-button>
                     </div>
                     <el-table :data="taskItems[scope.row.id] || []" border size="small">
                       <el-table-column label="明细名称" prop="itemName" min-width="150" show-overflow-tooltip />
+                      <el-table-column label="场景" width="72"><template #default="is">{{ is.row.metadata?.scene || '-' }}</template></el-table-column>
+                      <el-table-column label="城市" width="70"><template #default="is">{{ is.row.metadata?.city || '-' }}</template></el-table-column>
+                      <el-table-column label="里程" width="70"><template #default="is">{{ is.row.metadata?.mileage || '-' }}</template></el-table-column>
+                      <el-table-column label="车型" width="80"><template #default="is">{{ is.row.metadata?.model || '-' }}</template></el-table-column>
                       <el-table-column label="数据类型" prop="dataType" width="80" />
                       <el-table-column label="标注人" prop="annotator" width="70" />
                       <el-table-column label="标注状态" width="110">
@@ -148,6 +162,8 @@
                           <span v-else style="color:#c0c4cc">-</span>
                         </template>
                       </el-table-column>
+                      <el-table-column label="数据下载路径" min-width="150" show-overflow-tooltip><template #default="is">{{ is.row.metadata?.downloadPath || '-' }}</template></el-table-column>
+                      <el-table-column label="数据上传路径" min-width="170" show-overflow-tooltip><template #default="is">{{ is.row.uploadPath || '-' }}</template></el-table-column>
                       <el-table-column label="操作" width="60">
                         <template #default="is">
                           <el-popconfirm title="确定删除？" @confirm="deleteItem(scope.row.id, is.row)">
@@ -160,7 +176,6 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="Nano ID" prop="nanoId" width="88" />
               <el-table-column label="任务名称" prop="taskName" min-width="150" show-overflow-tooltip>
                 <template #default="scope">
                   <span class="task-name-cell">
@@ -185,12 +200,17 @@
                   <span :style="{ color: isOverdue(scope.row) ? '#f56c6c' : 'inherit' }">{{ scope.row.deadline }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="220" fixed="right">
+              <el-table-column label="操作" width="280" fixed="right">
                 <template #default="scope">
                   <el-button text size="small" type="primary" @click="$router.push('/task/detail/' + scope.row.id)">详情</el-button>
-                  <el-button v-if="['UNASSIGNED','REJECTED'].includes(scope.row.state)" text size="small" type="primary" @click="dispatchSingle(scope.row)">派发</el-button>
-                  <el-button v-if="scope.row.state === 'CLIENT_QA'" text size="small" type="success" @click="reviewSingle(scope.row)">验收</el-button>
-                  <el-dropdown trigger="click" @command="(cmd) => handleTaskCommand(cmd, scope.row)">
+                  <el-button v-if="isAdminLike" text size="small" type="primary" @click="openUploadPackage(scope.row)">导入数据包</el-button>
+                  <el-button v-if="!isAdminLike && scope.row.dataPackage" text size="small" type="primary" @click="downloadTaskPackage(scope.row)">下载数据包</el-button>
+                  <el-button v-if="isAdminLike && ['UNASSIGNED','REJECTED'].includes(scope.row.state)" text size="small" type="primary" @click="dispatchSingle(scope.row)">派发</el-button>
+                  <el-button v-if="isAdminLike && scope.row.state === 'CLIENT_QA'" text size="small" type="success" @click="reviewSingle(scope.row)">验收</el-button>
+                  <el-button v-if="['CLIENT_QA','ACCEPTED'].includes(scope.row.state)" text size="small" type="primary" @click="downloadSubmission(scope.row)">下载成果</el-button>
+                  <el-button v-if="['ACCEPTED','ARCHIVED'].includes(scope.row.state)" text size="small" type="warning" @click="$router.push('/finance/bill')">结算</el-button>
+                  <el-button v-if="!isAdminLike && ['VENDOR_QA','REJECTED'].includes(scope.row.state)" text size="small" type="success" @click="$router.push('/task/detail/' + scope.row.id)">提交</el-button>
+                  <el-dropdown v-if="isAdminLike" trigger="click" @command="(cmd) => handleTaskCommand(cmd, scope.row)">
                     <el-button text size="small">更多<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
@@ -204,7 +224,7 @@
                 </template>
               </el-table-column>
               <template #empty>
-                <span style="color:#c0c4cc">暂无任务，点击上方「添加任务」或「导入任务」</span>
+                <span style="color:#c0c4cc">暂无任务</span>
               </template>
             </el-table>
           </el-card>
@@ -237,10 +257,28 @@
           </el-col>
         </el-row>
         <el-form-item label="项目描述"><el-input v-model="createForm.description" type="textarea" :rows="3" placeholder="项目描述（选填）" /></el-form-item>
+        <el-form-item label="项目模板"><el-input v-model="createForm.template" placeholder="标注模板/模板说明（选填）" /></el-form-item>
+        <el-form-item label="数据上传路径"><el-input v-model="createForm.uploadPath" placeholder="数据上传路径（选填）" /></el-form-item>
         <el-form-item label="绑定数据集">
-          <el-select v-model="createForm.datasetId" placeholder="选择 TAGGED 治理数据集（可选）" clearable style="width:100%" @focus="loadGovernanceDatasets">
+          <el-radio-group v-model="createForm.bindMode" size="small" style="margin-bottom:8px">
+            <el-radio-button value="select">选择已有</el-radio-button>
+            <el-radio-button value="upload">上传新数据</el-radio-button>
+          </el-radio-group>
+          <el-select v-if="createForm.bindMode==='select'" v-model="createForm.datasetId" placeholder="选择清洗数据集" clearable style="width:100%" @focus="loadGovernanceDatasets">
             <el-option v-for="ds in governanceDatasets" :key="ds.id" :label="ds.name + ' | ' + ds.itemCount + '条'" :value="ds.id" />
           </el-select>
+          <div v-else class="upload-row">
+            <el-upload drag :auto-upload="false" :on-change="onProjectFileChange" :limit="1" accept=".zip,.csv,.xlsx,.json,.jsonl" style="width:100%">
+              <el-icon size="32"><UploadFilled /></el-icon>
+              <div class="el-upload__text">拖拽数据包或<em>点击上传</em></div>
+              <template #tip><div class="el-upload__tip">支持 zip / csv / xlsx / json</div></template>
+            </el-upload>
+            <div v-if="uploadForm.fileName" class="file-sel" style="margin-top:8px;padding:8px 12px;background:#f0f9eb;border-radius:4px;font-size:13px;color:#67c23a;display:flex;align-items:center;gap:6px">
+              <el-icon><Document /></el-icon>已选择：{{ uploadForm.fileName }}（{{ fmtSize(uploadForm.fileSize) }}）
+            </div>
+            <el-input v-if="uploadForm.fileName" v-model="uploadForm.datasetName" placeholder="数据集名称" style="margin-top:8px" />
+            <el-input-number v-if="uploadForm.fileName" v-model="uploadForm.itemCount" :min="1" :max="500" style="margin-top:8px;width:100%" />
+          </div>
         </el-form-item>
       </el-form>
 
@@ -249,11 +287,14 @@
         <div class="step2-toolbar">
           <span class="step2-tip">为项目添加任务（至少 1 个）</span>
           <el-button size="small" type="primary" text :icon="Plus" @click="addTaskRow">手动添加</el-button>
-          <el-button v-if="createForm.datasetId" size="small" type="success" :icon="Connection" @click="autoSplitTasks">自动拆分</el-button>
+          <el-button v-if="createForm.bindMode==='select' && createForm.datasetId" size="small" type="success" :icon="Connection" @click="autoSplitTasks">自动拆分</el-button>
+          <el-upload :show-file-list="false" :auto-upload="false" :on-change="onTaskExcelImport" accept=".xlsx,.xls,.csv" style="display:inline-flex">
+            <el-button size="small" type="warning" text :icon="Upload">导入Excel</el-button>
+          </el-upload>
         </div>
         <el-table :data="createForm.tasks" border size="small" max-height="300">
           <el-table-column label="任务名称" min-width="150"><template #default="s"><el-input v-model="s.row.taskName" placeholder="任务名称" size="small" /></template></el-table-column>
-          <el-table-column label="Nano ID" width="95"><template #default="s"><el-input v-model="s.row.nanoId" placeholder="ND001" size="small" /></template></el-table-column>
+          <el-table-column label="数据上传路径" min-width="150"><template #default="s"><el-input v-model="s.row.uploadPath" placeholder="数据上传路径" size="small" /></template></el-table-column>
           <el-table-column label="类型" width="115"><template #default="s"><el-select v-model="s.row.annotateType" size="small"><el-option v-for="t in annotateTypes" :key="t" :label="t" :value="t" /></el-select></template></el-table-column>
           <el-table-column label="样本量" width="85"><template #default="s"><el-input-number v-model="s.row.sampleCount" :min="0" size="small" controls-position="right" style="width:75px" /></template></el-table-column>
           <el-table-column label="单价" width="80"><template #default="s"><el-input-number v-model="s.row.unitPrice" :min="0" :step="0.05" :precision="2" size="small" controls-position="right" style="width:70px" /></template></el-table-column>
@@ -303,6 +344,8 @@
         </el-form-item>
         <el-form-item label="截止时间"><el-date-picker v-model="editProjectForm.deadline" type="date" style="width:100%" value-format="YYYY-MM-DD" /></el-form-item>
         <el-form-item label="项目描述"><el-input v-model="editProjectForm.description" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="项目模板"><el-input v-model="editProjectForm.template" placeholder="标注模板/模板说明（选填）" /></el-form-item>
+        <el-form-item label="数据上传路径"><el-input v-model="editProjectForm.uploadPath" placeholder="数据上传路径（选填）" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editProjectVisible = false">取消</el-button>
@@ -321,7 +364,7 @@
           </el-upload>
         </el-tab-pane>
         <el-tab-pane label="粘贴数据" name="text">
-          <el-alert type="info" :closable="false" style="margin-bottom:12px"><template #title>任务名称,Nano ID,标注类型,样本数量,截止时间,标注规范</template></el-alert>
+          <el-alert type="info" :closable="false" style="margin-bottom:12px"><template #title>任务名称,标注类型,样本数量,截止时间,标注规范</template></el-alert>
           <el-input v-model="importTasksText" type="textarea" :rows="10" placeholder="示例-点云,ND001,3D点云标注,10000,2026-09-30," />
           <el-button style="margin-top:12px" type="primary" :disabled="!importTasksText.trim()" @click="parseImportTasksText">解析数据</el-button>
         </el-tab-pane>
@@ -331,7 +374,6 @@
           <p>共 <b>{{ importPreview.length }}</b> 条</p>
           <el-table :data="importPreview" border max-height="260" size="small">
             <el-table-column label="任务名称" prop="taskName" />
-            <el-table-column label="Nano ID" prop="nanoId" width="90" />
             <el-table-column label="标注类型" prop="annotateType" width="110" />
             <el-table-column label="样本量" prop="sampleCount" width="80" />
             <el-table-column label="截止" prop="deadline" width="110" />
@@ -348,7 +390,6 @@
     <el-dialog v-model="editTaskVisible" title="编辑任务" width="560px">
       <el-form ref="editTaskFormRef" :model="editTaskForm" :rules="editTaskRules" label-width="100px">
         <el-form-item label="任务名称" prop="taskName"><el-input v-model="editTaskForm.taskName" /></el-form-item>
-        <el-form-item label="Nano ID"><el-input v-model="editTaskForm.nanoId" /></el-form-item>
         <el-form-item label="标注类型" prop="annotateType"><el-select v-model="editTaskForm.annotateType" style="width:100%"><el-option v-for="t in annotateTypes" :key="t" :label="t" :value="t" /></el-select></el-form-item>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="样本数量"><el-input-number v-model="editTaskForm.sampleCount" :min="1" style="width:100%" /></el-form-item></el-col>
@@ -419,9 +460,9 @@
 
     <!-- 添加任务 -->
     <el-dialog v-model="addTaskVisible" title="添加任务" width="560px" @closed="addTaskFormRef?.resetFields()">
-      <el-form ref="addTaskFormRef" :model="addTaskForm" :rules="addTaskRules" label-width="90px">
+      <el-form ref="addTaskFormRef" :model="addTaskForm" :rules="addTaskRules" label-width="110px">
         <el-form-item label="任务名称" prop="taskName"><el-input v-model="addTaskForm.taskName" placeholder="如：Batch02-路口场景" /></el-form-item>
-        <el-form-item label="Nano ID"><el-input v-model="addTaskForm.nanoId" placeholder="如：ND008" /></el-form-item>
+        <el-form-item label="数据上传路径" prop="uploadPath"><el-input v-model="addTaskForm.uploadPath" placeholder="请输入数据上传路径" /></el-form-item>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="标注类型" prop="annotateType"><el-select v-model="addTaskForm.annotateType" style="width:100%"><el-option v-for="t in annotateTypes" :key="t" :label="t" :value="t" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="单价"><el-input-number v-model="addTaskForm.unitPrice" :min="0" :step="0.05" :precision="2" style="width:100%" /></el-form-item></el-col>
@@ -429,6 +470,7 @@
         <el-form-item label="样本数量"><el-input-number v-model="addTaskForm.sampleCount" :min="0" style="width:100%" /></el-form-item>
         <el-form-item label="截止时间"><el-date-picker v-model="addTaskForm.deadline" type="datetime" style="width:100%" value-format="YYYY-MM-DD HH:mm" /></el-form-item>
         <el-form-item label="标注规范"><el-input v-model="addTaskForm.qaStandard" type="textarea" :rows="2" placeholder="标注规范要求" /></el-form-item>
+        <el-form-item label="数据包"><el-upload :auto-upload="false" :limit="1" :on-change="onAddTaskFileChange" accept=".zip,.tar,.gz,.7z"><el-button size="small" :icon="Upload">{{ addTaskFile ? addTaskFile.name : '选择数据包' }}</el-button></el-upload></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="addTaskVisible = false">取消</el-button>
@@ -436,18 +478,24 @@
       </template>
     </el-dialog>
 
+    <!-- 数据包上传 -->
+    <input ref="pkgInputRef" type="file" accept=".zip,.tar,.gz,.7z" style="display:none" @change="onPkgInputChange" />
+
     <!-- 导入明细 -->
     <el-dialog v-model="importItemsVisible" title="导入明细" width="650px" @closed="importItemsText='';importItemsPreview=[];importItemsFileList=[]">
+      <div style="margin-bottom:12px;font-size:13px;color:#606266" v-if="currentImportTaskName">
+        导入到：<b>{{ currentImportTaskName }}</b>
+      </div>
       <el-tabs>
-        <el-tab-pane label="上传CSV" name="file">
+        <el-tab-pane label="上传文件" name="file">
           <div class="import-header"><span style="color:#909399;font-size:13px">支持CSV/TXT文件</span><el-button size="small" text type="primary" @click="downloadItemsTemplate">下载模板</el-button></div>
-          <el-upload drag :limit="1" :auto-upload="false" :on-change="handleImportItemsFile" :file-list="importItemsFileList" accept=".csv,.txt">
+           <el-upload drag :limit="1" :auto-upload="false" :on-change="handleImportItemsFile" :file-list="importItemsFileList" accept=".csv,.txt,.xlsx,.xls">
             <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
             <div class="el-upload__text">拖拽CSV文件或<em>点击上传</em></div>
           </el-upload>
         </el-tab-pane>
         <el-tab-pane label="粘贴数据" name="text">
-          <el-input v-model="importItemsText" type="textarea" :rows="8" placeholder="明细名称,数据类型,标注人,标注状态,备注&#10;样本-001,图像,张三,annotated,&#10;样本-002,点云,李四,pending," />
+          <el-input v-model="importItemsText" type="textarea" :rows="8" placeholder="明细名称,数据类型,标注人,标注状态,备注,数据上传路径&#10;样本-001,图像,张三,annotated,,/data/upload/a&#10;样本-002,点云,李四,pending,,/data/upload/b" />
           <el-button style="margin-top:12px" type="primary" :disabled="!importItemsText.trim()" @click="importItemsPreview=parseItemsLines(importItemsText)">解析</el-button>
         </el-tab-pane>
       </el-tabs>
@@ -459,6 +507,7 @@
             <el-table-column label="标注人" prop="annotator" width="80" />
             <el-table-column label="标注状态" width="90"><template #default="s">{{ ITEM_STATUS_MAP[s.row.status] || s.row.status }}</template></el-table-column>
             <el-table-column label="备注" prop="failReason" width="120" />
+            <el-table-column label="数据上传路径" prop="uploadPath" min-width="150" show-overflow-tooltip />
           </el-table>
           <div class="import-actions"><el-button @click="importItemsPreview=[];importItemsFileList=[]">重选</el-button><el-button type="primary" :loading="actionLoading" @click="submitImportItems">导入</el-button></div>
         </div>
@@ -472,11 +521,14 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Search, Plus, Upload, Edit, Delete, ArrowDown, List, Warning, Promotion, Connection, Finished } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '@/store/user'
 import { getProjectsApi, createProjectApi, updateProjectStatusApi, updateProjectApi, deleteProjectApi, importProjectsApi, importProjectTasksApi } from '@/api/projects'
 import { getSupplierListApi, createTaskApi, dispatchTaskApi, reviewTaskApi, updateTaskApi, deleteTaskApi, getTaskListApi } from '@/api/tasks'
 import { getTaskStateText as getStateText, getTaskStateType as getStateType, REJECT_ERROR_TYPES } from '@/utils/constants'
 
 const router = useRouter()
+const userStore = useUserStore()
+const isAdminLike = computed(() => [1, 7].includes(userStore.userInfo.roleType))
 const loading = ref(false)
 const detailLoading = ref(false)
 const actionLoading = ref(false)
@@ -489,9 +541,17 @@ const projectActiveCountMap = reactive({})
 const projectOverdueCountMap = reactive({})
 const taskItems = reactive({})
 const itemsLoading = reactive({})
+
+const currentImportTaskName = computed(() => {
+  if (!importingTaskId.value) return null
+  const t = (projectTasks[selectedId.value] || []).find(t => t.id === importingTaskId.value)
+  return t ? t.taskName + ' (ID:' + t.id + ')' : null
+})
 const supplierList = ref([])
 const governanceDatasets = ref([])
 const selectedTasks = ref([])
+const expandedTaskId = ref(null)
+const dialogTaskOptions = ref([])
 
 const searchKey = ref('')
 const statusFilter = ref('')
@@ -580,7 +640,8 @@ function selectProject(proj) {
 const createVisible = ref(false)
 const createStep = ref(0)
 const step1FormRef = ref(null)
-const createForm = reactive({ name: '', annotateType: '', deadline: '', description: '', datasetId: null, supplierId: null, immediateStart: true, tasks: [] })
+const createForm = reactive({ name: '', annotateType: '', deadline: '', description: '', template: '', uploadPath: '', datasetId: null, bindMode: 'select', supplierId: null, immediateStart: true, tasks: [] })
+const uploadForm = reactive({ fileName: '', fileSize: 0, datasetName: '', itemCount: 30 })
 const createProjectRules = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
   annotateType: [{ required: true, message: '请选择标注类型', trigger: 'change' }]
@@ -588,13 +649,14 @@ const createProjectRules = {
 const createTotalPrice = computed(() => createForm.tasks.reduce((sum, t) => sum + (t.sampleCount || 0) * (t.unitPrice || 0), 0).toFixed(2))
 const createSelectedSupplier = computed(() => supplierList.value.find(s => s.id === createForm.supplierId))
 
-const addTaskRow = () => createForm.tasks.push({ taskName: '', nanoId: '', annotateType: createForm.annotateType || '2D拉框', sampleCount: 0, unitPrice: 0.1, deadline: createForm.deadline || '', qaStandard: '' })
+const addTaskRow = () => createForm.tasks.push({ taskName: '', uploadPath: createForm.uploadPath || '', annotateType: createForm.annotateType || '2D拉框', sampleCount: 0, unitPrice: 0.1, deadline: createForm.deadline || '', qaStandard: '' })
 const removeTaskRow = (i) => createForm.tasks.splice(i, 1)
 
 const resetCreate = () => {
   createStep.value = 0
   step1FormRef.value?.resetFields()
-  Object.assign(createForm, { name: '', annotateType: '', deadline: '', description: '', datasetId: null, supplierId: null, immediateStart: true, tasks: [] })
+  Object.assign(createForm, { name: '', annotateType: '', deadline: '', description: '', template: '', uploadPath: '', datasetId: null, bindMode: 'select', supplierId: null, immediateStart: true, tasks: [] })
+  Object.assign(uploadForm, { fileName: '', fileSize: 0, datasetName: '', itemCount: 30 })
 }
 
 const openCreate = () => { resetCreate(); addTaskRow(); createVisible.value = true }
@@ -606,19 +668,33 @@ const nextStep = async () => {
   if (createStep.value === 1) {
     const valid = createForm.tasks.filter(t => t.taskName.trim())
     if (!valid.length && !createForm.datasetId) { ElMessage.warning('请至少添加一个任务或绑定数据集并自动拆分'); return }
+    const missing = valid.filter(t => !(t.uploadPath || '').trim())
+    if (missing.length) { ElMessage.warning(`还有 ${missing.length} 个任务未填写数据上传路径`); return }
   }
   createStep.value++
 }
 
 const submitCreate = async () => {
   const validTasks = createForm.tasks.filter(t => t.taskName.trim())
-  if (!validTasks.length && !createForm.datasetId) { ElMessage.warning('请至少添加一个任务或绑定数据集'); return }
+  if (!validTasks.length && !createForm.datasetId && createForm.bindMode !== 'upload') { ElMessage.warning('请至少添加一个任务或绑定数据集'); return }
+  if (createForm.bindMode === 'upload' && !uploadForm.fileName) { ElMessage.warning('请选择要上传的数据文件'); return }
   actionLoading.value = true
   try {
+    let finalDatasetId = createForm.datasetId
+    // 上传模式：先导入数据生成数据集
+    if (createForm.bindMode === 'upload') {
+      const token = localStorage.getItem('token') || ''
+      const res = await fetch('/api/governance/import', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name: uploadForm.datasetName || createForm.name + '_data', fileName: uploadForm.fileName, fileSize: uploadForm.fileSize, itemCount: uploadForm.itemCount }) })
+      const json = await res.json()
+      if (json.code !== 0) throw new Error(json.message)
+      finalDatasetId = json.data.id
+      ElMessage.success('数据已导入，生成数据集 ' + json.data.name)
+    }
     const { data: project } = await createProjectApi({
       name: createForm.name, annotateType: createForm.annotateType,
       deadline: createForm.deadline, description: createForm.description,
-      datasetId: createForm.datasetId
+      template: createForm.template, uploadPath: createForm.uploadPath,
+      datasetId: finalDatasetId
     })
     let dispatched = 0
     // 如果绑定了数据集 → 调用拆分 API（自动创建任务+复制数据）
@@ -660,13 +736,13 @@ const submitCreate = async () => {
 // ===== 编辑项目 =====
 const editProjectVisible = ref(false)
 const editProjectFormRef = ref(null)
-const editProjectForm = reactive({ id: null, name: '', annotateType: '', deadline: '', description: '' })
+const editProjectForm = reactive({ id: null, name: '', annotateType: '', deadline: '', description: '', template: '', uploadPath: '' })
 const editProjectRules = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
   annotateType: [{ required: true, message: '请选择标注类型', trigger: 'change' }]
 }
 const openEditProject = (proj) => {
-  Object.assign(editProjectForm, { id: proj.id, name: proj.name, annotateType: proj.annotateType, deadline: proj.deadline === '-' ? '' : proj.deadline, description: proj.description })
+  Object.assign(editProjectForm, { id: proj.id, name: proj.name, annotateType: proj.annotateType, deadline: proj.deadline === '-' ? '' : proj.deadline, description: proj.description, template: proj.template || '', uploadPath: proj.uploadPath || '' })
   editProjectVisible.value = true
 }
 const submitEditProject = async () => {
@@ -690,27 +766,27 @@ const importPreview = ref([])
 const resetImportTasks = () => { importTasksText.value = ''; importFileList.value = []; importPreview.value = [] }
 const parseTaskLines = (text) => text.trim().split('\n').filter(l => l.trim()).map(line => {
   const p = line.split(',').map(s => s.trim())
-  return { taskName: p[0] || '-', nanoId: p[1] || '', annotateType: p[2] || '2D拉框', sampleCount: Number(p[3]) || 0, deadline: p[4] || '-', qaStandard: p[5] || '' }
+  return { taskName: p[0] || '-', annotateType: p[1] || '2D拉框', sampleCount: Number(p[2]) || 0, deadline: p[3] || '-', qaStandard: p[4] || '' }
 })
 const handleImportFile = (file) => {
+  const raw = file.raw || file
   importFileList.value = [file]
-  const r = new FileReader()
-  r.onload = (e) => {
-    let text = e.target.result
-    if (text.includes('\ufffd') || text.includes('锟斤拷')) {
-      const r2 = new FileReader()
-      r2.onload = (ev) => { importPreview.value = parseTaskLines(ev.target.result) }
-      r2.readAsText(file.raw, 'GB2312')
-      return
-    }
-    importPreview.value = parseTaskLines(text)
+  const reader = new FileReader()
+  reader.onload = async () => {
+    const base64 = reader.result.split(',')[1]
+    try {
+      const json = await itemsApi('/projects/' + importingProjectId.value + '/tasks/import-file', { method: 'POST', body: { fileName: raw.name, fileData: base64 } })
+      ElMessage.success(`导入 ${json.data.imported} 条任务`)
+      importTasksVisible.value = false
+      loadProjectTasks(importingProjectId.value)
+    } catch { ElMessage.error('导入失败') }
   }
-  r.readAsText(file.raw)
+  reader.readAsDataURL(raw)
 }
 const parseImportTasksText = () => { importPreview.value = parseTaskLines(importTasksText.value) }
 const downloadTaskTemplate = () => {
   const BOM = '\uFEFF'
-  const content = BOM + '任务名称,Nano ID,标注类型,样本数量,截止时间,标注规范\n示例-点云,ND001,3D点云标注,10000,2026-09-30,\n示例-2D框,ND002,2D拉框,5000,2026-10-15,'
+  const content = BOM + '任务名称,标注类型,样本数量,截止时间,标注规范\n示例-点云,3D点云标注,10000,2026-09-30,\n示例-2D框,2D拉框,5000,2026-10-15,'
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a'); a.href = url; a.download = '任务导入模板.csv'; a.click()
@@ -732,11 +808,12 @@ const submitImportTasks = async () => {
 const editingProjectId = ref(null)
 const addTaskVisible = ref(false)
 const addTaskFormRef = ref(null)
-const addTaskForm = reactive({ taskName: '', nanoId: '', annotateType: '', sampleCount: null, unitPrice: 0.1, deadline: '', qaStandard: '' })
-const addTaskRules = { taskName: [{ required: true, message: '请输入任务名称', trigger: 'blur' }], annotateType: [{ required: true, message: '请选择标注类型', trigger: 'change' }] }
+const addTaskFile = ref(null)
+const addTaskForm = reactive({ taskName: '', uploadPath: '', annotateType: '', sampleCount: null, unitPrice: 0.1, deadline: '', qaStandard: '' })
+const addTaskRules = { taskName: [{ required: true, message: '请输入任务名称', trigger: 'blur' }], annotateType: [{ required: true, message: '请选择标注类型', trigger: 'change' }], uploadPath: [{ required: true, message: '请填写数据上传路径', trigger: 'blur' }] }
 const openAddTask = (proj) => {
   editingProjectId.value = proj.id
-  addTaskForm.taskName = ''; addTaskForm.nanoId = ''; addTaskForm.annotateType = proj.annotateType || '2D拉框'
+  addTaskForm.taskName = ''; addTaskForm.uploadPath = ''; addTaskForm.annotateType = proj.annotateType || '2D拉框'
   addTaskForm.sampleCount = null; addTaskForm.unitPrice = 0.1; addTaskForm.deadline = proj.deadline || ''; addTaskForm.qaStandard = ''
   addTaskVisible.value = true
 }
@@ -744,20 +821,62 @@ const submitAddTask = async () => {
   try { await addTaskFormRef.value.validate() } catch { return }
   actionLoading.value = true
   try {
-    await createTaskApi({ ...addTaskForm, projectId: editingProjectId.value })
+    const body = { ...addTaskForm, projectId: editingProjectId.value }
+    if (addTaskFile.value) {
+      const b64 = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(addTaskFile.value) })
+      body.dataPackage = { fileName: addTaskFile.value.name, data: b64 }
+    }
+    await createTaskApi(body)
     ElMessage.success('任务已添加')
-    addTaskVisible.value = false
+    addTaskVisible.value = false; addTaskFile.value = null
     loadProjectTasks(editingProjectId.value)
   } finally { actionLoading.value = false }
+}
+
+function onAddTaskFileChange(file) { addTaskFile.value = file.raw || file }
+
+// ===== 数据包上传/下载 =====
+const pkgInputRef = ref(null)
+const pkgUploadingTask = ref(null)
+function openUploadPackage(row) {
+  pkgUploadingTask.value = row
+  pkgInputRef.value?.click()
+}
+async function onPkgInputChange(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file || !pkgUploadingTask.value) return
+  actionLoading.value = true
+  try {
+    const b64 = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file) })
+    const json = await itemsApi('/tasks/' + pkgUploadingTask.value.id + '/package', { method: 'POST', body: { fileName: file.name, fileData: b64 } })
+    ElMessage.success('数据包已上传')
+    loadProjectTasks(selectedId.value)
+  } catch { ElMessage.error('上传失败') }
+  finally { actionLoading.value = false }
+}
+async function downloadTaskPackage(row) {
+  if (!row.dataPackage?.storedName) { ElMessage.warning('该任务暂无数据包'); return }
+  const token = localStorage.getItem('token') || ''
+  try {
+    const dl = await fetch('/api/files/download/' + row.dataPackage.storedName, { headers: { Authorization: 'Bearer ' + token } })
+    if (!dl.ok) { ElMessage.error('下载失败'); return }
+    const blob = await dl.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = row.dataPackage.fileName || 'data.zip'
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch { ElMessage.error('下载失败') }
 }
 
 // ===== 编辑任务 =====
 const editTaskVisible = ref(false)
 const editTaskFormRef = ref(null)
-const editTaskForm = reactive({ id: null, taskName: '', nanoId: '', annotateType: '', sampleCount: null, unitPrice: 0.1, deadline: '', qaStandard: '' })
+const editTaskForm = reactive({ id: null, taskName: '', annotateType: '', sampleCount: null, unitPrice: 0.1, deadline: '', qaStandard: '' })
 const editTaskRules = { taskName: [{ required: true, message: '请输入任务名称' }], annotateType: [{ required: true, message: '请选择类型' }] }
 const editTask = (row) => {
-  Object.assign(editTaskForm, { id: row.id, taskName: row.taskName, nanoId: row.nanoId || '', annotateType: row.annotateType, sampleCount: row.sampleCount, unitPrice: row.unitPrice || 0.1, deadline: row.deadline, qaStandard: row.qaStandard?.replace(/<[^>]*>/g, '') || '' })
+  Object.assign(editTaskForm, { id: row.id, taskName: row.taskName, annotateType: row.annotateType, sampleCount: row.sampleCount, unitPrice: row.unitPrice || 0.1, deadline: row.deadline, qaStandard: row.qaStandard?.replace(/<[^>]*>/g, '') || '' })
   editTaskVisible.value = true
 }
 const submitEditTask = async () => {
@@ -791,6 +910,15 @@ const dispatchForm = reactive({ taskIds: [], taskName: '', supplierId: null, imm
 const dispatchSelectedSupplier = computed(() => supplierList.value.find(s => s.id === dispatchForm.supplierId))
 
 const onSelectionChange = (rows) => { selectedTasks.value = rows }
+const openDeliverForSelected = () => {
+  const t = selectedTasks.value[0]
+  if (!t) { ElMessage.warning('请先勾选一个任务'); return }
+  if (!['VENDOR_QA', 'REJECTED'].includes(t.state)) { ElMessage.warning('当前任务状态不可提交交付'); return }
+  router.push('/task/detail/' + t.id)
+}
+const goSettlement = () => {
+  router.push('/finance/bill')
+}
 const dispatchSingle = (row) => {
   dispatchForm.taskIds = [row.id]; dispatchForm.taskName = row.taskName
   dispatchForm.supplierId = null; dispatchForm.immediateStart = true; dispatchForm.qaSamplingRate = 0.2
@@ -880,6 +1008,47 @@ const onArchiveProject = async () => {
   } catch { ElMessage.error('结项失败') }
 }
 
+async function onPushFeishu() {
+  const proj = selectedProject.value
+  if (!proj) return
+  try {
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/feishu/project-summary/' + proj.id, { method: 'POST', headers: { Authorization: 'Bearer ' + token } })
+    const json = await res.json()
+    if (json.data?.sent) {
+      ElMessage.success(`已推送项目摘要到飞书（${json.data.results?.length || 0} 个群）`)
+    } else {
+      ElMessage.warning(json.data?.reason || json.data?.results?.[0]?.resp || '推送失败，请先配置飞书 Webhook')
+    }
+  } catch { ElMessage.error('推送失败') }
+}
+
+async function downloadSubmission(row) {
+  try {
+    const token = localStorage.getItem('token') || ''
+    // 获取任务详情取提交版本
+    const res = await fetch('/api/tasks/' + row.id, { headers: { Authorization: 'Bearer ' + token } })
+    const json = await res.json()
+    const versions = json.data?.versions || []
+    const latest = versions[versions.length - 1]
+    if (!latest || !latest.storedName) { ElMessage.warning('该任务尚未提交成果文件'); return }
+    // 触发下载
+    const dl = await fetch('/api/submissions/' + latest.id + '/download', { headers: { Authorization: 'Bearer ' + token } })
+    if (!dl.ok) { ElMessage.error('下载失败'); return }
+    const blob = await dl.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = latest.fileName || 'submission_' + latest.id
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch { ElMessage.error('下载失败') }
+}
+
+async function handleExpand(row) {
+  expandedTaskId.value = row?.id || null
+  if (row) loadItems(row)
+}
+
 const deleteProject = async (proj) => {
   const taskCount = projectTaskCount[proj.id] || 0
   try {
@@ -943,6 +1112,41 @@ const loadGovernanceDatasets = async () => {
   } catch {}
 }
 
+function onProjectFileChange(file) {
+  const raw = file.raw || file
+  uploadForm.fileName = raw.name; uploadForm.fileSize = raw.size
+  if (!uploadForm.datasetName) uploadForm.datasetName = raw.name.replace(/\.(zip|tar|gz|7z|csv|xlsx|json|mp4|avi|mov|mkv)$/i, '')
+  const m = raw.name.match(/_(\d+)\./); if (m) uploadForm.itemCount = Math.min(Number(m[1]), 500)
+}
+
+function fmtSize(b) { if (!b) return '0 B'; const u = ['B', 'KB', 'MB', 'GB']; let i = 0, s = b; while (s >= 1024 && i < 3) { s /= 1024; i++ } return s.toFixed(1) + ' ' + u[i] }
+
+// Excel 导入 → 后端解析后填充任务明细
+async function onTaskExcelImport(file) {
+  const raw = file.raw || file
+  try {
+    const reader = new FileReader()
+    const base64 = await new Promise((resolve, reject) => {
+      reader.onload = () => { const data = reader.result.split(',')[1]; resolve(data) }
+      reader.onerror = reject
+      reader.readAsDataURL(raw)
+    })
+    const token = localStorage.getItem('token') || ''
+    const res = await fetch('/api/projects/parse-excel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ fileName: raw.name, fileData: base64 })
+    })
+    const json = await res.json()
+    if (json.code !== 0) { ElMessage.error(json.message); return }
+    const taskRows = json.data.tasks || []
+    createForm.tasks = taskRows.map(t => ({ ...t, uploadPath: t.uploadPath || createForm.uploadPath || '' }))
+    ElMessage.success(`已解析 ${taskRows.length} 条任务明细（列：${(json.data.columns || []).join('、')}）`)
+  } catch (e) {
+    ElMessage.error('解析失败：' + e.message)
+  }
+}
+
 // 自动拆分：将绑定的数据集按每 N 张图拆分为任务
 const autoSplitTasks = async () => {
   const itemsPerTask = 10
@@ -957,8 +1161,9 @@ const autoSplitTasks = async () => {
     if (!res.ok || json.code !== 0) { ElMessage.error(json.message || '拆分失败'); return }
     const taskPreviews = json.data.tasks || []
     createForm.tasks = taskPreviews.map(t => ({
-      taskName: t.taskName, nanoId: t.nanoId || '', annotateType: createForm.annotateType || '2D拉框',
-      sampleCount: t.sampleCount, unitPrice: 0.1, deadline: createForm.deadline || '', qaStandard: ''
+      taskName: t.taskName, annotateType: createForm.annotateType || '2D拉框',
+      sampleCount: t.sampleCount, unitPrice: 0.1, deadline: createForm.deadline || '', qaStandard: '',
+      uploadPath: t.uploadPath || createForm.uploadPath || ''
     }))
     ElMessage.success(`已拆分 ${taskPreviews.length} 个任务（每 ${itemsPerTask} 条 = 1 个 Task）`)
   } catch { ElMessage.error('拆分失败') }
@@ -976,11 +1181,13 @@ async function itemsApi(path, opts = {}) {
 }
 
 const loadItems = async (taskRow) => {
-  if (taskItems[taskRow.id]) return
-  itemsLoading[taskRow.id] = true
-  try { const json = await itemsApi('/tasks/' + taskRow.id + '/items'); taskItems[taskRow.id] = json.data }
-  catch { taskItems[taskRow.id] = [] }
-  finally { itemsLoading[taskRow.id] = false }
+  const taskId = taskRow && taskRow.id
+  if (!taskId) return
+  if (taskItems[taskId]) return
+  itemsLoading[taskId] = true
+  try { const json = await itemsApi('/tasks/' + taskId + '/items'); taskItems[taskId] = json.data }
+  catch { taskItems[taskId] = [] }
+  finally { itemsLoading[taskId] = false }
 }
 const itemsByStatus = (taskId, status) => (taskItems[taskId] || []).filter(i => i.status === status).length
 const updateItemStatus = async (taskId, item, newStatus) => {
@@ -1000,20 +1207,30 @@ const importItemsPreview = ref([])
 const importItemsFileList = ref([])
 const importItemsVisible = ref(false)
 const importingTaskId = ref(null)
-const openImportItems = (taskRow) => { importItemsText.value = ''; importItemsFileList.value = []; importItemsPreview.value = []; importingTaskId.value = taskRow.id; importItemsVisible.value = true }
+const openImportItems = (taskRow) => { 
+  importItemsText.value = ''; importItemsFileList.value = []; importItemsPreview.value = []
+  importingTaskId.value = taskRow ? taskRow.id : null
+  importItemsVisible.value = true 
+}
 const parseItemsLines = (text) => text.trim().split('\n').filter(l => l.trim()).map(line => {
   const p = line.split(',').map(s => s.trim())
-  return { itemName: p[0] || '', dataType: p[1] || '', annotator: p[2] || '', status: p[3] || 'pending', failReason: p[4] || '' }
+  return { itemName: p[0] || '', dataType: p[1] || '', annotator: p[2] || '', status: p[3] || 'pending', failReason: p[4] || '', uploadPath: p[5] || '' }
 }).filter(r => r.itemName)
 const handleImportItemsFile = (file) => {
-  importItemsFileList.value = [file]
-  const r = new FileReader()
-  r.onload = (e) => {
-    let text = e.target.result
-    if (text.includes('\ufffd') || text.includes('锟斤拷')) { const r2 = new FileReader(); r2.onload = (ev) => { importItemsPreview.value = parseItemsLines(ev.target.result) }; r2.readAsText(file.raw, 'GB2312'); return }
-    importItemsPreview.value = parseItemsLines(text)
+  const raw = file.raw || file
+  const reader = new FileReader()
+  reader.onload = async () => {
+    const base64 = reader.result.split(',')[1]
+    actionLoading.value = true
+    try {
+      const json = await itemsApi('/tasks/' + importingTaskId.value + '/items/import-file', { method: 'POST', body: { fileName: raw.name, fileData: base64 } })
+      ElMessage.success(`导入 ${json.data.imported} 条明细`)
+      importItemsVisible.value = false
+      taskItems[importingTaskId.value] = null; loadItems({ id: importingTaskId.value })
+    } catch { ElMessage.error('导入失败') }
+    finally { actionLoading.value = false }
   }
-  r.readAsText(file.raw)
+  reader.readAsDataURL(raw)
 }
 const submitImportItems = async () => {
   if (!importItemsPreview.value.length) return
@@ -1022,7 +1239,7 @@ const submitImportItems = async () => {
 }
 const downloadItemsTemplate = () => {
   const BOM = '\uFEFF'
-  const content = BOM + '明细名称,数据类型,标注人,标注状态,备注\n样本-001,图像,张三,annotated,\n样本-002,点云,李四,pending,\n样本-003,图像,王五,failed,图像模糊'
+  const content = BOM + '明细名称,数据类型,标注人,标注状态,备注,数据上传路径\n样本-001,图像,张三,annotated,,/data/upload/a\n样本-002,点云,李四,pending,,/data/upload/b\n样本-003,图像,王五,failed,图像模糊,/data/upload/c'
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '明细导入模板.csv'; a.click()
   URL.revokeObjectURL(a.href)
@@ -1047,7 +1264,7 @@ const openImport = () => {
   }).catch(() => {})
 }
 
-onMounted(loadProjects)
+onMounted(() => { loadProjects(); window.addEventListener('focus', loadProjects); window.addEventListener('visibilitychange', () => { if (!document.hidden) loadProjects() }) })
 </script>
 
 <style scoped>

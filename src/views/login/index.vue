@@ -111,13 +111,11 @@ const qrForm = reactive({ code: '' })
 const demoAccounts = [
   { label: '甲方PM', username: 'admin', password: '123' },
   { label: '甲方质检员', username: 'qa_01', password: '123' },
-  { label: '供应商A-TL', username: 'supp_a', password: '123' },
-  { label: '供应商B-TL', username: 'supp_b', password: '123' },
+  { label: '供应商A_TL', username: 'supp_a', password: '123' },
+  { label: '供应商B_TL', username: 'supp_b', password: '123' },
   { label: '标注员A1', username: 'anno_a1', password: '123' },
   { label: '标注员A2', username: 'anno_a2', password: '123' },
   { label: '标注员B1', username: 'anno_b1', password: '123' },
-  { label: '供应商质检A', username: 'vqa_a', password: '123' },
-  { label: '供应商质检B', username: 'vqa_b', password: '123' },
   { label: '算法工程师', username: 'algo_01', password: '123' },
   { label: '数据清洗A', username: 'clean_a1', password: '123' },
   { label: '数据清洗B', username: 'clean_b1', password: '123' }
@@ -126,9 +124,9 @@ const demoAccounts = [
 // 按角色决定登录后落地页
 function homeByRole(roleType) {
   if (roleType === 4) return '/workbench'      // 标注员 → 标注工作台
-  if (roleType === 5 || roleType === 2) return '/qa'  // 质检 → 质检工作台
+  if (roleType === 2) return '/qa'  // 甲方质检 → 质检工作台
   if (roleType === 3) return '/supplier/dashboard'    // 供应商TL → 供应商门户
-  if (roleType === 6) return '/governance'          // R&D → 数据治理中心
+  if (roleType === 6) return '/dataset'              // R&D → 数据集中心
   if (roleType === 7) return '/dataset'              // 数据清洗 → 数据集管理
   return '/dashboard'                                    // 甲方PM/算法 → 仪表盘
 }

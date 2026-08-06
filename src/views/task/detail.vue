@@ -200,8 +200,20 @@ const onCompleteWork = async () => { try { await completeWorkApi(taskInfo.value.
 
 const loadSuppliers = async () => { if (!supplierList.value.length) try { const { data } = await getSupplierListApi(); supplierList.value = data } catch {} }
 
-const downloadPackage = () => {
-  if (taskInfo.value.dataPackage?.storedName) window.open('/api/files/download/' + taskInfo.value.dataPackage.storedName)
+const downloadPackage = async () => {
+  const pkg = taskInfo.value.dataPackage
+  if (!pkg?.storedName) return
+  const token = localStorage.getItem('token') || ''
+  try {
+    const res = await fetch('/api/files/download/' + pkg.storedName, { headers: { Authorization: 'Bearer ' + token } })
+    if (!res.ok) throw new Error()
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = pkg.fileName || 'data.zip'
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch { ElMessage.error('下载失败') }
 }
 
 const downloadFile = (row) => {
