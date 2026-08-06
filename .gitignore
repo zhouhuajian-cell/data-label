@@ -2,3 +2,7 @@ node_modules/
 .vscode/
 *.log
 dist/
+.npm-cache/
+ngrok.exe
+uploads/
+server/data/db.json
