@@ -24,6 +24,8 @@ export const TASK_STATE_TYPE_MAP = {
 
 export const ITEM_STATUS_MAP = { pending: '待标注', annotated: '已标注', rejected: '驳回', failed: '失败' }
 
+export const ANNOTATE_TYPES = ['2D拉框', '3D点云标注', '语义分割', '车道线标注', 'Vslam', '数据闭环', 'CNN', 'AEB', 'OBJ']
+
 export const ROLE_TYPE = {
   CLIENT_PM: 1,
   CLIENT_QA: 2,
