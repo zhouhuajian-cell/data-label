@@ -34,6 +34,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
+import { getLogsApi } from '@/api/admin'
 
 const list = ref([])
 const page = ref(1)
@@ -71,12 +72,9 @@ async function load(p) {
   page.value = p || page.value
   loading.value = true
   try {
-    const t = localStorage.getItem('token') || ''
-    const params = `?page=${page.value}&pageSize=${pageSize}` + (typeFilter.value ? `&type=${typeFilter.value}` : '')
-    const r = await fetch('/api/admin/logs' + params, { headers: { Authorization: 'Bearer ' + t } })
-    const j = await r.json()
-    list.value = j.data || []
-    total.value = j.meta?.total || 0
+    const { data, meta } = await getLogsApi({ page: page.value, pageSize, type: typeFilter.value })
+    list.value = data || []
+    total.value = meta?.total || 0
   } finally { loading.value = false }
 }
 

@@ -522,12 +522,18 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Search, Plus, Upload, Edit, Delete, ArrowDown, List, Warning, Promotion, Connection, Finished } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
-import { getProjectsApi, createProjectApi, updateProjectStatusApi, updateProjectApi, deleteProjectApi, importProjectsApi, importProjectTasksApi } from '@/api/projects'
-import { getSupplierListApi, createTaskApi, dispatchTaskApi, reviewTaskApi, updateTaskApi, deleteTaskApi, getTaskListApi } from '@/api/tasks'
-import { getTaskStateText as getStateText, getTaskStateType as getStateType, REJECT_ERROR_TYPES } from '@/utils/constants'
+import { getProjectsApi, createProjectApi, updateProjectStatusApi, updateProjectApi, deleteProjectApi, importProjectsApi, importProjectTasksApi, splitProjectApi, importProjectTasksFileApi, archiveProjectApi, parseProjectExcelApi } from '@/api/projects'
+import { getSupplierListApi, createTaskApi, dispatchTaskApi, reviewTaskApi, updateTaskApi, deleteTaskApi, getTaskListApi, getTaskDetailApi } from '@/api/tasks'
+import { getTaskItemsApi, updateTaskItemApi, deleteTaskItemApi, batchUpdateTaskItemsApi, importTaskItemsApi, importTaskItemsFileApi, uploadTaskPackageApi } from '@/api/items'
+import { fetchGovernedDatasets, importDataset, previewSplitApi } from '@/api/governance'
+import { pushProjectSummaryApi } from '@/api/feishu'
+import { useDownload } from '@/composables/useDownload'
+import { getTaskStateText as getStateText, getTaskStateType as getStateType, REJECT_ERROR_TYPES, ITEM_STATUS_MAP } from '@/utils/constants'
+import { parseTaskLines, parseItemsLines } from '@/utils/csv'
 
 const router = useRouter()
 const userStore = useUserStore()
+const { downloadFile } = useDownload()
 const isAdminLike = computed(() => [1, 7].includes(userStore.userInfo.roleType))
 const loading = ref(false)
 const detailLoading = ref(false)
@@ -557,7 +563,6 @@ const searchKey = ref('')
 const statusFilter = ref('')
 const stateFilter = ref('')
 
-const ITEM_STATUS_MAP = { pending: '待标注', annotated: '已标注', rejected: '驳回', failed: '失败' }
 const itemStatusTagType = (code) => (['failed', 'rejected'].includes(code) ? 'danger' : code === 'annotated' ? 'success' : code === 'pending' ? 'info' : '')
 
 const annotateTypes = ['2D拉框', '3D点云标注', '语义分割', '车道线标注', 'Vslam', '数据闭环', 'CNN', 'AEB', 'OBJ']
@@ -683,12 +688,9 @@ const submitCreate = async () => {
     let finalDatasetId = createForm.datasetId
     // 上传模式：先导入数据生成数据集
     if (createForm.bindMode === 'upload') {
-      const token = localStorage.getItem('token') || ''
-      const res = await fetch('/api/governance/import', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name: uploadForm.datasetName || createForm.name + '_data', fileName: uploadForm.fileName, fileSize: uploadForm.fileSize, itemCount: uploadForm.itemCount }) })
-      const json = await res.json()
-      if (json.code !== 0) throw new Error(json.message)
-      finalDatasetId = json.data.id
-      ElMessage.success('数据已导入，生成数据集 ' + json.data.name)
+      const { data: ds } = await importDataset({ name: uploadForm.datasetName || createForm.name + '_data', fileName: uploadForm.fileName, fileSize: uploadForm.fileSize, itemCount: uploadForm.itemCount })
+      finalDatasetId = ds.id
+      ElMessage.success('数据已导入，生成数据集 ' + ds.name)
     }
     const { data: project } = await createProjectApi({
       name: createForm.name, annotateType: createForm.annotateType,
@@ -699,13 +701,7 @@ const submitCreate = async () => {
     let dispatched = 0
     // 如果绑定了数据集 → 调用拆分 API（自动创建任务+复制数据）
     if (createForm.datasetId) {
-      const token = localStorage.getItem('token') || ''
-      const splitRes = await fetch(`/api/projects/${project.id}/split`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ itemsPerTask: 10 })
-      })
-      const splitJson = await splitRes.json()
+      const splitJson = await splitProjectApi(project.id, { itemsPerTask: 10 })
       if (splitJson.code === 0) {
         const createdTasks = splitJson.data.tasks || []
         ElMessage.success(`项目创建成功，自动拆分 ${createdTasks.length} 个任务，共 ${splitJson.data.totalItems} 条数据` + (createForm.supplierId ? '' : ''))
@@ -764,10 +760,6 @@ const importTasksText = ref('')
 const importFileList = ref([])
 const importPreview = ref([])
 const resetImportTasks = () => { importTasksText.value = ''; importFileList.value = []; importPreview.value = [] }
-const parseTaskLines = (text) => text.trim().split('\n').filter(l => l.trim()).map(line => {
-  const p = line.split(',').map(s => s.trim())
-  return { taskName: p[0] || '-', annotateType: p[1] || '2D拉框', sampleCount: Number(p[2]) || 0, deadline: p[3] || '-', qaStandard: p[4] || '' }
-})
 const handleImportFile = (file) => {
   const raw = file.raw || file
   importFileList.value = [file]
@@ -775,7 +767,7 @@ const handleImportFile = (file) => {
   reader.onload = async () => {
     const base64 = reader.result.split(',')[1]
     try {
-      const json = await itemsApi('/projects/' + importingProjectId.value + '/tasks/import-file', { method: 'POST', body: { fileName: raw.name, fileData: base64 } })
+      const json = await importProjectTasksFileApi(importingProjectId.value, { fileName: raw.name, fileData: base64 })
       ElMessage.success(`导入 ${json.data.imported} 条任务`)
       importTasksVisible.value = false
       loadProjectTasks(importingProjectId.value)
@@ -849,7 +841,7 @@ async function onPkgInputChange(e) {
   actionLoading.value = true
   try {
     const b64 = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file) })
-    const json = await itemsApi('/tasks/' + pkgUploadingTask.value.id + '/package', { method: 'POST', body: { fileName: file.name, fileData: b64 } })
+    const json = await uploadTaskPackageApi(pkgUploadingTask.value.id, { fileName: file.name, fileData: b64 })
     ElMessage.success('数据包已上传')
     loadProjectTasks(selectedId.value)
   } catch { ElMessage.error('上传失败') }
@@ -857,16 +849,8 @@ async function onPkgInputChange(e) {
 }
 async function downloadTaskPackage(row) {
   if (!row.dataPackage?.storedName) { ElMessage.warning('该任务暂无数据包'); return }
-  const token = localStorage.getItem('token') || ''
   try {
-    const dl = await fetch('/api/files/download/' + row.dataPackage.storedName, { headers: { Authorization: 'Bearer ' + token } })
-    if (!dl.ok) { ElMessage.error('下载失败'); return }
-    const blob = await dl.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = row.dataPackage.fileName || 'data.zip'
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    await downloadFile('/files/download/' + row.dataPackage.storedName, row.dataPackage.fileName || 'data.zip')
   } catch { ElMessage.error('下载失败') }
 }
 
@@ -994,17 +978,11 @@ const onArchiveProject = async () => {
     )
   } catch { return }
   try {
-    const token = localStorage.getItem('token') || ''
-    const res = await fetch('/api/projects/archive', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ projectId: proj.id })
-    })
-    const json = await res.json()
-    if (json.code === 0) {
-      ElMessage.success(`项目已结项归档，生成 Dataset：${json.data.archivedDataset.name}（${json.data.archivedDataset.itemCount} 条数据）`)
+    const { data, message } = await archiveProjectApi(proj.id)
+    if (data) {
+      ElMessage.success(`项目已结项归档，生成 Dataset：${data.archivedDataset.name}（${data.archivedDataset.itemCount} 条数据）`)
       loadProjects()
-    } else ElMessage.error(json.message)
+    } else ElMessage.error(message)
   } catch { ElMessage.error('结项失败') }
 }
 
@@ -1012,35 +990,24 @@ async function onPushFeishu() {
   const proj = selectedProject.value
   if (!proj) return
   try {
-    const token = localStorage.getItem('token') || ''
-    const res = await fetch('/api/feishu/project-summary/' + proj.id, { method: 'POST', headers: { Authorization: 'Bearer ' + token } })
-    const json = await res.json()
-    if (json.data?.sent) {
-      ElMessage.success(`已推送项目摘要到飞书（${json.data.results?.length || 0} 个群）`)
+    const { data } = await pushProjectSummaryApi(proj.id)
+    if (data?.sent) {
+      ElMessage.success(`已推送项目摘要到飞书（${data.results?.length || 0} 个群）`)
     } else {
-      ElMessage.warning(json.data?.reason || json.data?.results?.[0]?.resp || '推送失败，请先配置飞书 Webhook')
+      ElMessage.warning(data?.reason || data?.results?.[0]?.resp || '推送失败，请先配置飞书 Webhook')
     }
   } catch { ElMessage.error('推送失败') }
 }
 
 async function downloadSubmission(row) {
   try {
-    const token = localStorage.getItem('token') || ''
     // 获取任务详情取提交版本
-    const res = await fetch('/api/tasks/' + row.id, { headers: { Authorization: 'Bearer ' + token } })
-    const json = await res.json()
-    const versions = json.data?.versions || []
+    const { data } = await getTaskDetailApi(row.id)
+    const versions = data?.versions || []
     const latest = versions[versions.length - 1]
     if (!latest || !latest.storedName) { ElMessage.warning('该任务尚未提交成果文件'); return }
     // 触发下载
-    const dl = await fetch('/api/submissions/' + latest.id + '/download', { headers: { Authorization: 'Bearer ' + token } })
-    if (!dl.ok) { ElMessage.error('下载失败'); return }
-    const blob = await dl.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = latest.fileName || 'submission_' + latest.id
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    await downloadFile('/submissions/' + latest.id + '/download', latest.fileName || 'submission_' + latest.id)
   } catch { ElMessage.error('下载失败') }
 }
 
@@ -1105,10 +1072,8 @@ const loadSuppliers = async () => {
 const loadGovernanceDatasets = async () => {
   if (governanceDatasets.value.length) return
   try {
-    const token = localStorage.getItem('token') || ''
-    const res = await fetch('/api/governance/datasets', { headers: { Authorization: 'Bearer ' + token } })
-    const json = await res.json()
-    governanceDatasets.value = (json.data || []).filter(d => d.status === 'TAGGED')
+    const { data } = await fetchGovernedDatasets()
+    governanceDatasets.value = (data || []).filter(d => d.status === 'TAGGED')
   } catch {}
 }
 
@@ -1131,17 +1096,11 @@ async function onTaskExcelImport(file) {
       reader.onerror = reject
       reader.readAsDataURL(raw)
     })
-    const token = localStorage.getItem('token') || ''
-    const res = await fetch('/api/projects/parse-excel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ fileName: raw.name, fileData: base64 })
-    })
-    const json = await res.json()
-    if (json.code !== 0) { ElMessage.error(json.message); return }
-    const taskRows = json.data.tasks || []
+    const { data, message } = await parseProjectExcelApi({ fileName: raw.name, fileData: base64 })
+    if (!data?.tasks) { ElMessage.error(message || '解析失败'); return }
+    const taskRows = data.tasks || []
     createForm.tasks = taskRows.map(t => ({ ...t, uploadPath: t.uploadPath || createForm.uploadPath || '' }))
-    ElMessage.success(`已解析 ${taskRows.length} 条任务明细（列：${(json.data.columns || []).join('、')}）`)
+    ElMessage.success(`已解析 ${taskRows.length} 条任务明细（列：${(data.columns || []).join('、')}）`)
   } catch (e) {
     ElMessage.error('解析失败：' + e.message)
   }
@@ -1151,15 +1110,9 @@ async function onTaskExcelImport(file) {
 const autoSplitTasks = async () => {
   const itemsPerTask = 10
   try {
-    const token = localStorage.getItem('token') || ''
-    const res = await fetch('/api/governance/preview-split', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ datasetId: createForm.datasetId, itemsPerTask })
-    })
-    const json = await res.json()
-    if (!res.ok || json.code !== 0) { ElMessage.error(json.message || '拆分失败'); return }
-    const taskPreviews = json.data.tasks || []
+    const { data, message } = await previewSplitApi({ datasetId: createForm.datasetId, itemsPerTask })
+    if (!data?.tasks) { ElMessage.error(message || '拆分失败'); return }
+    const taskPreviews = data.tasks || []
     createForm.tasks = taskPreviews.map(t => ({
       taskName: t.taskName, annotateType: createForm.annotateType || '2D拉框',
       sampleCount: t.sampleCount, unitPrice: 0.1, deadline: createForm.deadline || '', qaStandard: '',
@@ -1170,36 +1123,26 @@ const autoSplitTasks = async () => {
 }
 
 // ===== 明细 =====
-async function itemsApi(path, opts = {}) {
-  const token = localStorage.getItem('token') || ''
-  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) }
-  if (token) headers.Authorization = 'Bearer ' + token
-  const res = await fetch('/api' + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined })
-  const json = await res.json()
-  if (!res.ok || json.code !== 0) throw new Error(json.message)
-  return json
-}
-
 const loadItems = async (taskRow) => {
   const taskId = taskRow && taskRow.id
   if (!taskId) return
   if (taskItems[taskId]) return
   itemsLoading[taskId] = true
-  try { const json = await itemsApi('/tasks/' + taskId + '/items'); taskItems[taskId] = json.data }
+  try { const { data } = await getTaskItemsApi(taskId); taskItems[taskId] = data }
   catch { taskItems[taskId] = [] }
   finally { itemsLoading[taskId] = false }
 }
 const itemsByStatus = (taskId, status) => (taskItems[taskId] || []).filter(i => i.status === status).length
 const updateItemStatus = async (taskId, item, newStatus) => {
-  try { await itemsApi('/tasks/' + taskId + '/items/' + item.id, { method: 'PUT', body: { status: newStatus } }); item.status = newStatus; ElMessage.success(`状态已更新为${ITEM_STATUS_MAP[newStatus]}`) } catch { ElMessage.error('更新失败') }
+  try { await updateTaskItemApi(taskId, item.id, { status: newStatus }); item.status = newStatus; ElMessage.success(`状态已更新为${ITEM_STATUS_MAP[newStatus]}`) } catch { ElMessage.error('更新失败') }
 }
 const saveFailReason = async (taskId, item) => {
-  try { await itemsApi('/tasks/' + taskId + '/items/' + item.id, { method: 'PUT', body: { status: item.status, failReason: item.failReason } }); ElMessage.success('备注已保存') } catch { ElMessage.error('保存失败') }
+  try { await updateTaskItemApi(taskId, item.id, { status: item.status, failReason: item.failReason }); ElMessage.success('备注已保存') } catch { ElMessage.error('保存失败') }
 }
 const batchUpdateItems = async (taskRow) => {
   const items = taskItems[taskRow.id] || []
   if (!items.length) return ElMessage.warning('没有明细')
-  try { await itemsApi('/tasks/' + taskRow.id + '/items/batch', { method: 'PUT', body: { itemIds: items.map(i => i.id), status: 'annotated' } }); items.forEach(i => { i.status = 'annotated'; i.failReason = '' }); ElMessage.success('全部标为已标注') } catch { ElMessage.error('操作失败') }
+  try { await batchUpdateTaskItemsApi(taskRow.id, { itemIds: items.map(i => i.id), status: 'annotated' }); items.forEach(i => { i.status = 'annotated'; i.failReason = '' }); ElMessage.success('全部标为已标注') } catch { ElMessage.error('操作失败') }
 }
 
 const importItemsText = ref('')
@@ -1212,10 +1155,6 @@ const openImportItems = (taskRow) => {
   importingTaskId.value = taskRow ? taskRow.id : null
   importItemsVisible.value = true 
 }
-const parseItemsLines = (text) => text.trim().split('\n').filter(l => l.trim()).map(line => {
-  const p = line.split(',').map(s => s.trim())
-  return { itemName: p[0] || '', dataType: p[1] || '', annotator: p[2] || '', status: p[3] || 'pending', failReason: p[4] || '', uploadPath: p[5] || '' }
-}).filter(r => r.itemName)
 const handleImportItemsFile = (file) => {
   const raw = file.raw || file
   const reader = new FileReader()
@@ -1223,7 +1162,7 @@ const handleImportItemsFile = (file) => {
     const base64 = reader.result.split(',')[1]
     actionLoading.value = true
     try {
-      const json = await itemsApi('/tasks/' + importingTaskId.value + '/items/import-file', { method: 'POST', body: { fileName: raw.name, fileData: base64 } })
+      const json = await importTaskItemsFileApi(importingTaskId.value, { fileName: raw.name, fileData: base64 })
       ElMessage.success(`导入 ${json.data.imported} 条明细`)
       importItemsVisible.value = false
       taskItems[importingTaskId.value] = null; loadItems({ id: importingTaskId.value })
@@ -1235,7 +1174,7 @@ const handleImportItemsFile = (file) => {
 const submitImportItems = async () => {
   if (!importItemsPreview.value.length) return
   actionLoading.value = true
-  try { const json = await itemsApi('/tasks/' + importingTaskId.value + '/items/import', { method: 'POST', body: { rows: importItemsPreview.value } }); ElMessage.success(`导入 ${json.data.imported} 条明细`); importItemsVisible.value = false; taskItems[importingTaskId.value] = null; loadItems({ id: importingTaskId.value }) } catch { ElMessage.error('导入失败') } finally { actionLoading.value = false }
+  try { const { data } = await importTaskItemsApi(importingTaskId.value, { rows: importItemsPreview.value }); ElMessage.success(`导入 ${data.imported} 条明细`); importItemsVisible.value = false; taskItems[importingTaskId.value] = null; loadItems({ id: importingTaskId.value }) } catch { ElMessage.error('导入失败') } finally { actionLoading.value = false }
 }
 const downloadItemsTemplate = () => {
   const BOM = '\uFEFF'
@@ -1245,7 +1184,7 @@ const downloadItemsTemplate = () => {
   URL.revokeObjectURL(a.href)
 }
 const deleteItem = async (taskId, item) => {
-  try { await itemsApi(`/tasks/${taskId}/items/${item.id}`, { method: 'DELETE' }); const idx = taskItems[taskId]?.indexOf(item); if (idx >= 0) taskItems[taskId].splice(idx, 1); ElMessage.success('明细已删除') } catch { ElMessage.error('删除失败') }
+  try { await deleteTaskItemApi(taskId, item.id); const idx = taskItems[taskId]?.indexOf(item); if (idx >= 0) taskItems[taskId].splice(idx, 1); ElMessage.success('明细已删除') } catch { ElMessage.error('删除失败') }
 }
 
 // 批量导入项目

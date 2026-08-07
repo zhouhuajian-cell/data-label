@@ -37,6 +37,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { ROLE_LABELS } from '@/utils/constants.js'
+import { listUsersApi, createUserApi, updateUserApi, deleteUserApi } from '@/api/admin'
 
 const list = ref([])
 const dlgVisible = ref(false)
@@ -44,8 +45,7 @@ const editId = ref(null)
 const form = reactive({ username: '', userName: '', password: '', roleType: 4, supplierId: null })
 
 async function loadList() {
-  const t = localStorage.getItem('token') || ''
-  try { const r = await fetch('/api/users', { headers: { Authorization: 'Bearer ' + t } }); list.value = (await r.json()).data || [] } catch {}
+  try { const { data } = await listUsersApi(); list.value = data || [] } catch {}
 }
 
 function openAdd() { editId.value = null; form.username = ''; form.userName = ''; form.password = ''; form.roleType = 4; form.supplierId = null; dlgVisible.value = true }
@@ -53,18 +53,17 @@ function openEdit(row) { editId.value = row.id; form.username = row.username; fo
 
 async function onSave() {
   if (!form.username.trim()) { ElMessage.warning('请输入账号'); return }
-  const t = localStorage.getItem('token') || ''
   const body = { ...form }; if (!body.password) delete body.password
   try {
-    await fetch(editId.value ? '/api/users/' + editId.value : '/api/users', { method: editId.value ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t }, body: JSON.stringify(body) })
+    if (editId.value) await updateUserApi(editId.value, body)
+    else await createUserApi(body)
     ElMessage.success(editId.value ? '已更新' : '已创建')
     dlgVisible.value = false; loadList()
   } catch { ElMessage.error('操作失败') }
 }
 
 async function onDelete(row) {
-  const t = localStorage.getItem('token') || ''
-  try { await fetch('/api/users/' + row.id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + t } }); loadList(); ElMessage.success(row.disabled ? '已恢复' : '已禁用') } catch { ElMessage.error('操作失败') }
+  try { await deleteUserApi(row.id); loadList(); ElMessage.success(row.disabled ? '已恢复' : '已禁用') } catch { ElMessage.error('操作失败') }
 }
 
 onMounted(loadList)

@@ -63,7 +63,7 @@
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { getTaskStateText, getTaskStateType } from '@/utils/constants'
-import { request } from '@/api/client.js'
+import { getDashboardDataApi } from '@/api/dashboard.js'
 
 const getStateText = getTaskStateText
 const getStateType = getTaskStateType
@@ -86,11 +86,8 @@ const STATUS_LABELS = { unassigned: '待指派', annotating: '标注中', vendor
 function ffrColor(ffr) { return ffr === null ? '#909399' : ffr >= 0.95 ? '#67c23a' : ffr >= 0.9 ? '#e6a23c' : '#f56c6c' }
 
 async function loadData() {
-  const token = localStorage.getItem('token') || ''
-  const res = await fetch('/api/dashboard', { headers: { Authorization: 'Bearer ' + token } })
-  const json = await res.json()
-  if (json.code !== 0) return
-  Object.assign(data, json.data)
+  const { data: payload } = await getDashboardDataApi()
+  Object.assign(data, payload)
   const st = data.itemsByStatus || {}
   statCards.value[0].val = data.projectCount
   statCards.value[1].val = data.totalTasks

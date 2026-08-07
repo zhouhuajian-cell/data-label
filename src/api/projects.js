@@ -31,3 +31,19 @@ export function getProjectDetailApi(id) {
 export function importProjectTasksApi(projectId, rows) {
   return request('/projects/' + projectId + '/tasks/import', { method: 'POST', body: { rows } })
 }
+
+export function splitProjectApi(projectId, payload) {
+  return request('/projects/' + projectId + '/split', { method: 'POST', body: payload })
+}
+
+export function importProjectTasksFileApi(projectId, payload) {
+  return request('/projects/' + projectId + '/tasks/import-file', { method: 'POST', body: payload })
+}
+
+export function archiveProjectApi(projectId) {
+  return request('/projects/archive', { method: 'POST', body: { projectId } })
+}
+
+export function parseProjectExcelApi(payload) {
+  return request('/projects/parse-excel', { method: 'POST', body: payload })
+}

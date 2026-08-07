@@ -68,12 +68,14 @@
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { request } from '@/api/client.js'
 import { getWorkbenchQueue, vendorQaItem, clientQaItem, claimQaTask, releaseQaTask } from '@/api/workbench.js'
+import { getTaskListApi, getTaskDetailApi, reviewTaskApi } from '@/api/tasks.js'
 import { useUserStore } from '@/store/user'
 import { REJECT_ERROR_TYPES } from '@/utils/constants.js'
+import { useDownload } from '@/composables/useDownload'
 
 const userStore = useUserStore()
+const { downloadFile: downloadBlob } = useDownload()
 const level = computed(() => userStore.userInfo.roleType === 2 ? 'client' : 'vendor')
 const canvasRef = ref(null)
 const taskList = ref([])
@@ -92,12 +94,12 @@ const rejectForm = reactive({ errorTypes: [], note: '' })
 async function loadTasks() {
   if (level.value === 'client') {
     try {
-      const res = await request('/tasks?pageSize=200')
+      const res = await getTaskListApi({ pageSize: 200 })
       taskList.value = (res.data || []).filter(t => t.state === 'CLIENT_QA')
       if (taskList.value.length && !currentTaskId.value) await selectTask(taskList.value[0])
     } catch {}
   } else {
-    try { const res = await request('/tasks?pageSize=200'); taskOptions.value = res.data || [] } catch {}
+    try { const res = await getTaskListApi({ pageSize: 200 }); taskOptions.value = res.data || [] } catch {}
   }
 }
 
@@ -161,12 +163,7 @@ async function quickPass(it) {
     // 甲方验收：同时调用任务级验收，双保险确保状态流转
     if (level.value === 'client') {
       try {
-        const token = localStorage.getItem('token') || ''
-        await fetch('/api/tasks/' + currentTaskId.value + '/review', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-          body: JSON.stringify({ pass: true, score: 100, comment: '质检通过' })
-        })
+        await reviewTaskApi(currentTaskId.value, { pass: true, score: 100, comment: '质检通过' })
       } catch {}
     }
     ElMessage.success('已通过')
@@ -193,14 +190,10 @@ async function confirmReject() {
 async function downloadTaskFile() {
   if (!currentTaskId.value) return
   try {
-    const token = localStorage.getItem('token') || ''
-    const r = await fetch('/api/tasks/' + currentTaskId.value, { headers: { Authorization: 'Bearer ' + token } })
-    const j = await r.json(); const v = j.data?.versions || []; const latest = v[v.length - 1]
+    const { data } = await getTaskDetailApi(currentTaskId.value)
+    const v = data?.versions || []; const latest = v[v.length - 1]
     if (!latest?.storedName) { ElMessage.warning('未提交成果文件'); return }
-    const dl = await fetch('/api/submissions/' + latest.id + '/download', { headers: { Authorization: 'Bearer ' + token } })
-    const blob = await dl.blob(); const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = latest.fileName || 's_' + latest.id
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
+    await downloadBlob('/submissions/' + latest.id + '/download', latest.fileName || 's_' + latest.id)
   } catch { ElMessage.error('下载失败') }
 }
 

@@ -120,6 +120,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useDownload } from '@/composables/useDownload'
 import { ElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import { getTaskDetailApi, acceptTaskApi, completeWorkApi, dispatchTaskApi, reviewTaskApi, getSupplierListApi } from '@/api/tasks'
@@ -129,6 +130,7 @@ import DeliverModal from '@/components/task/DeliverModal.vue'
 
 const route = useRoute()
 const router = useRouter()
+const { downloadFile: downloadBlob } = useDownload()
 const userStore = useUserStore()
 const loading = ref(false)
 const actionLoading = ref(false)
@@ -203,32 +205,15 @@ const loadSuppliers = async () => { if (!supplierList.value.length) try { const 
 const downloadPackage = async () => {
   const pkg = taskInfo.value.dataPackage
   if (!pkg?.storedName) return
-  const token = localStorage.getItem('token') || ''
   try {
-    const res = await fetch('/api/files/download/' + pkg.storedName, { headers: { Authorization: 'Bearer ' + token } })
-    if (!res.ok) throw new Error()
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = pkg.fileName || 'data.zip'
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    await downloadBlob('/files/download/' + pkg.storedName, pkg.fileName || 'data.zip')
   } catch { ElMessage.error('下载失败') }
 }
 
 const downloadFile = (row) => {
   if (!row.id || !row.storedName) { ElMessage.warning('该版本未上传文件'); return }
-  const token = localStorage.getItem('token') || ''
-  fetch('/api/submissions/' + row.id + '/download', { headers: { Authorization: 'Bearer ' + token } })
-    .then(res => { if (!res.ok) throw new Error(); return res.blob() })
-    .then(blob => {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = row.fileName || 'submission_' + row.id + '.zip'
-      document.body.appendChild(a); a.click(); document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    })
-    .catch(() => ElMessage.error('下载失败，文件可能不存在'))
+  downloadBlob('/submissions/' + row.id + '/download', row.fileName || 'submission_' + row.id + '.zip')
+    .catch(() => ElMessage.error('下载失败'))
 }
 
 const formatSize = (bytes) => {

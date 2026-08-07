@@ -299,3 +299,17 @@ export function archiveProject(user, projectId) {
   import('./feishu.js').then(m => m.pushProjectSummary(user, projectId)).catch(() => {})
   return { archivedDataset: { id: ds.id, name: ds.name, itemCount: ds.itemCount, taskCount: acceptedTasks.length } }
 }
+
+// 从 Excel/CSV 文件解析任务并批量创建（延迟加载 xlsx 与 tasks 服务，保持启动轻量）
+export async function importProjectTasksFromFile(user, projectId, body) {
+  const { parseTaskExcel } = await import('./excel.js')
+  const { createTask } = await import('./tasks.js')
+  const result = await parseTaskExcel(user, body)
+  if (!result.tasks || !result.tasks.length) throw new ApiError(422, 'VALIDATION_ERROR', '未解析到任务')
+  let imported = 0
+  for (const t of result.tasks) {
+    await createTask(user, { ...t, projectId })
+    imported++
+  }
+  return { imported }
+}

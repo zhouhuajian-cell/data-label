@@ -80,8 +80,7 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/store/user'
-import { request } from '@/api/client.js'
-import { acceptTaskApi } from '@/api/tasks.js'
+import { acceptTaskApi, getTaskListApi } from '@/api/tasks.js'
 import { getWorkbenchQueue, vendorQaItem } from '@/api/workbench.js'
 import { getTaskStateText, getTaskStateType, REJECT_ERROR_TYPES } from '@/utils/constants.js'
 
@@ -112,7 +111,7 @@ const statCards = computed(() => [
 ])
 
 async function loadTasks() {
-  try { const res = await request('/tasks?pageSize=200'); allTasks.value = res.data || []; reworkBacklog.value = allTasks.value.filter(t => t.state === 'REJECTED').length } catch {}
+  try { const res = await getTaskListApi({ pageSize: 200 }); allTasks.value = res.data || []; reworkBacklog.value = allTasks.value.filter(t => t.state === 'REJECTED').length } catch {}
 }
 
 async function onAccept(task) { try { await acceptTaskApi(task.id); ElMessage.success('已接单'); loadTasks() } catch {} }

@@ -81,10 +81,12 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
-import { request } from '@/api/client.js'
 import { listSettlements, generateSettlement, confirmSettlement } from '@/api/settlement.js'
+import { getTaskListApi } from '@/api/tasks.js'
+import { useDownload } from '@/composables/useDownload'
 
 const userStore = useUserStore()
+const { downloadFile } = useDownload()
 const billList = ref([])
 const stats = reactive({ settled: 0, pipeline: 0, budget: 100000, usageRate: 0 })
 const genVisible = ref(false)
@@ -114,7 +116,7 @@ async function loadData() {
 
 async function loadGenTasks() {
   if (!userStore.isAdmin) return
-  const res = await request('/tasks?page=1&pageSize=100')
+  const res = await getTaskListApi({ page: 1, pageSize: 100 })
   genTasks.value = (res.data || []).filter(t => t.supplierId)
 }
 
@@ -141,15 +143,7 @@ function onExport(s) {
 }
 
 async function downloadCsv(id) {
-  const token = localStorage.getItem('token') || ''
-  const res = await fetch(`/api/settlements/${id}/export`, { headers: { Authorization: 'Bearer ' + token } })
-  const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `结算单${id}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+  await downloadFile(`/settlements/${id}/export`, `结算单${id}.csv`)
 }
 
 onMounted(() => { loadData(); loadGenTasks() })

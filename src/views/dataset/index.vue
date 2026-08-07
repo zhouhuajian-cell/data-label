@@ -223,9 +223,11 @@ import { fetchDatasets,fetchDatasetItems } from '@/api/dataset.js'
 import { fetchGovernedDatasets,fetchGovernedDetail,importDataset,importDatasetFile,updateDatasetStatus,tagGovernedItem,batchTagGovernedItems,deleteGovernedItem,deleteDataset } from '@/api/governance.js'
 import { fetchDim,saveDim,deleteDim } from '@/api/tagging.js'
 import { saveItemTags,batchSaveTags } from '@/api/tagging.js'
-import { request } from '@/api/client.js'
+import { deleteTaskItemApi } from '@/api/items.js'
+import { useDownload } from '@/composables/useDownload'
 
 const userStore=useUserStore()
+const { downloadFile } = useDownload()
 const showCleanOnly=computed(()=>[6,7].includes(userStore.userInfo.roleType))
 const fieldPool=computed(()=>{
   const dim={model:new Set()}
@@ -422,8 +424,7 @@ async function saveTag(){if(!currentItem.value)return
   const isGov=currentDS.value?.source==='gov'
   try{
     if(isGov){
-      const token=localStorage.getItem('token')||''
-      await fetch('/api/governance/items/'+currentItem.value.id+'/tag',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({tags:editTags.value,cleanTime:editCleanTime.value,batch:(editMeta.batch||[]).join(','),model:(editMeta.model||[]).join(','),check:(editMeta.check||[]).join(','),scene:(editMeta.scene||[]).join(','),cleaner:(editMeta.cleaner||[]).join(',')})})
+      await tagGovernedItem(currentItem.value.id,{tags:editTags.value,cleanTime:editCleanTime.value,batch:(editMeta.batch||[]).join(','),model:(editMeta.model||[]).join(','),check:(editMeta.check||[]).join(','),scene:(editMeta.scene||[]).join(','),cleaner:(editMeta.cleaner||[]).join(',')})
     }else{
       const fn=saveItemTags;await fn(currentItem.value.id,editTags.value)
     }
@@ -446,7 +447,7 @@ async function onDeleteItem(it) {
   try{await ElMessageBox.confirm(`删除「${it.itemName}」？`,'确认删除',{type:'warning'})}catch{return}
   const isGov=currentDS.value?.source==='gov'
   try{
-    if(isGov){await deleteGovernedItem(it.id)} else {await request('/tasks/'+(currentDS.value.taskId||currentDS.value.id)+'/items/'+it.id,{method:'DELETE'})}
+    if(isGov){await deleteGovernedItem(it.id)} else {await deleteTaskItemApi(currentDS.value.taskId||currentDS.value.id, it.id)}
     browseItems.value=browseItems.value.filter(i=>i.id!==it.id);if(currentItem.value?.id===it.id)currentItem.value=null
     ElMessage.success('已删除');loadAll()
   }catch{ElMessage.error('删除失败')}
@@ -464,7 +465,7 @@ async function onDeleteDS(row) {
   try{await deleteDataset(row.id);allDatasets.value=allDatasets.value.filter(d=>d.id!==row.id);ElMessage.success('已删除')}catch{ElMessage.error('删除失败')}
 }
 
-async function exportDS(row){const t=localStorage.getItem('token')||'';try{const r=await fetch('/api/datasets/'+(row.taskId||row.id)+'/export',{headers:{Authorization:'Bearer '+t}});if(!r.ok)throw Error();const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='dataset_'+row.taskId+'.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);ElMessage.success('已导出')}catch{ElMessage.error('导出失败')}}
+async function exportDS(row){try{await downloadFile('/datasets/'+(row.taskId||row.id)+'/export','dataset_'+(row.taskId||row.id)+'.json');ElMessage.success('已导出')}catch{ElMessage.error('导出失败')}}
 
 function handleResize(){scenarioChart?.resize()}
 onMounted(()=>{initFilterByRole();loadAll();window.addEventListener('resize',handleResize)})

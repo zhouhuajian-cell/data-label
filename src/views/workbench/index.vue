@@ -98,8 +98,8 @@ import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Delete, Refresh, WarnTriangleFilled } from '@element-plus/icons-vue'
-import { request } from '@/api/client.js'
 import { getWorkbenchQueue, claimItem, saveAnnotation, submitItem } from '@/api/workbench.js'
+import { getTaskListApi } from '@/api/tasks.js'
 import { heartbeat } from '@/api/timing.js'
 import { useUserStore } from '@/store/user'
 import Watermark from '@/components/Watermark.vue'
@@ -146,7 +146,7 @@ function formatTime(sec) {
 }
 
 async function loadTaskOptions() {
-  const res = await request('/tasks?page=1&pageSize=100')
+  const res = await getTaskListApi({ page: 1, pageSize: 100 })
   taskOptions.value = (res.data || []).filter(t => ['ANNOTATING', 'VENDOR_QA'].includes(t.state))
   // 优先使用路由传入的 taskId，否则取第一个
   const routeTaskId = route.params.taskId ? Number(route.params.taskId) : null

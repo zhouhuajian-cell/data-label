@@ -54,7 +54,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
-import { request } from '@/api/client.js'
+import { getDashboardDataApi } from '@/api/dashboard.js'
 
 const barRef = ref(null)
 let barChart = null
@@ -79,7 +79,8 @@ const teamFfrLevelText = computed(() => teamFfr.value === null ? '-' : teamFfr.v
 function ffrColor(ffr) { return ffr === null ? '#909399' : ffr >= 95 ? '#67c23a' : ffr >= 90 ? '#e6a23c' : '#f56c6c' }
 
 async function loadData() {
-  const res = await request('/dashboard')
+  const { data } = await getDashboardDataApi()
+  const res = { data }
   teamPerf.value = res.data?.teamPerf || []
   errorTop3.value = (res.data?.errorTop || []).slice(0, 3)
   await nextTick()

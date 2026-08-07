@@ -8,6 +8,14 @@ const feishuMap = {
   'feishu-suppb': 'supp_b'
 }
 
+export function loginByPassword(body) {
+  const username = String(body.username || '').trim()
+  const password = String(body.password || '')
+  const user = users.find(item => item.username === username && item.password === password && !item.disabled)
+  if (!user) throw new ApiError(401, 'INVALID_CREDENTIALS', '账号或密码错误')
+  return user
+}
+
 export function loginByFeishuCode(body) {
   const code = String(body.code || '').trim()
   if (!code) {

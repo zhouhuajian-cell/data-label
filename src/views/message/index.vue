@@ -63,6 +63,7 @@ import { ref, onMounted, reactive } from 'vue'
 import { Bell, Document, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { fetchNotifications, markRead, markAllRead } from '@/api/notifications.js'
+import { getFeishuWebhookApi, setFeishuWebhookApi, pushFeishuApi } from '@/api/feishu.js'
 import { useUserStore } from '@/store/user.js'
 
 const userStore = useUserStore()
@@ -78,17 +79,14 @@ const webhook = reactive({ webhooks: [{ name: '默认通知群', url: '' }], ena
 async function loadWebhook() {
   if (!userStore.isAdmin) return
   try {
-    const token = localStorage.getItem('token') || ''
-    const res = await fetch('/api/feishu/webhook', { headers: { Authorization: 'Bearer ' + token } })
-    const json = await res.json()
-    if (json.code === 0) { webhook.webhooks = json.data.webhooks || [{ name: '', url: '' }]; webhook.enabled = json.data.enabled }
+    const { data } = await getFeishuWebhookApi()
+    if (data) { webhook.webhooks = data.webhooks || [{ name: '', url: '' }]; webhook.enabled = data.enabled }
   } catch {}
 }
 
 async function onSaveWebhook() {
   try {
-    const token = localStorage.getItem('token') || ''
-    await fetch('/api/feishu/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ webhooks: webhook.webhooks, enabled: webhook.enabled }) })
+    await setFeishuWebhookApi({ webhooks: webhook.webhooks, enabled: webhook.enabled })
     ElMessage.success('飞书配置已保存')
   } catch { ElMessage.error('保存失败') }
 }
@@ -96,10 +94,7 @@ async function onSaveWebhook() {
 async function onTestPush() {
   if (!webhook.testMsg) { ElMessage.warning('请输入测试消息'); return }
   try {
-    const token = localStorage.getItem('token') || ''
-    const res = await fetch('/api/feishu/push', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ title: '手动推送测试', content: webhook.testMsg, webhookIndex: webhook.testIndex }) })
-    const json = await res.json()
-    const data = json.data
+    const { data } = await pushFeishuApi({ title: '手动推送测试', content: webhook.testMsg, webhookIndex: webhook.testIndex })
     if (data?.results) {
       const msg = data.results.map(r => (r.ok ? '✓' : '✗') + r.resp).join(' | ')
       ElMessage({ message: msg, type: data.sent ? 'success' : 'warning', duration: 5000 })
