@@ -24,8 +24,8 @@ function normalizePath(path) {
   return normalized
 }
 
-function getToken() {
-  return localStorage.getItem('token') || ''
+function getToken(key) {
+  return localStorage.getItem(key || 'token') || ''
 }
 
 export async function request(path, options = {}) {
@@ -33,7 +33,7 @@ export async function request(path, options = {}) {
     'Content-Type': 'application/json',
     ...(options.headers || {})
   }
-  const token = getToken()
+  const token = getToken(options.tokenKey)
   if (token) headers.authorization = 'Bearer ' + token
 
   let response

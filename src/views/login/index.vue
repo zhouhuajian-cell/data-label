@@ -83,6 +83,10 @@
             >{{ item.label }}</el-button>
           </div>
         </template>
+
+        <div class="gnd-entry">
+          <el-button type="primary" plain size="large" class="gnd-entry-btn" @click="$router.push('/gnd/login')">进入 GND 量产数据交互平台 →</el-button>
+        </div>
       </div>
     </div>
   </div>
@@ -95,6 +99,7 @@ import { ElMessage } from 'element-plus'
 import { Promotion, Monitor, Lock, User } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import { loginApi, feishuLoginApi } from '@/api/auth'
+import { gndLoginApi, gndFeishuApi } from '@/api/gnd'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -113,21 +118,20 @@ const demoAccounts = [
   { label: '甲方质检员', username: 'qa_01', password: '123' },
   { label: '供应商A_TL', username: 'supp_a', password: '123' },
   { label: '供应商B_TL', username: 'supp_b', password: '123' },
-  { label: '标注员A1', username: 'anno_a1', password: '123' },
-  { label: '标注员A2', username: 'anno_a2', password: '123' },
-  { label: '标注员B1', username: 'anno_b1', password: '123' },
   { label: '算法工程师', username: 'algo_01', password: '123' },
   { label: '数据清洗A', username: 'clean_a1', password: '123' },
-  { label: '数据清洗B', username: 'clean_b1', password: '123' }
+  { label: '数据清洗B', username: 'clean_b1', password: '123' },
+  { label: 'GND 泰兴管理员', username: 'gnd_admin', password: 'gnd_admin_123' }
 ]
 
 // 按角色决定登录后落地页
 function homeByRole(roleType) {
-  if (roleType === 4) return '/workbench'      // 标注员 → 标注工作台
+  if (roleType === 4) return '/task'              // 标注员账号已停用标注工作台，落地任务列表
   if (roleType === 2) return '/qa'  // 甲方质检 → 质检工作台
   if (roleType === 3) return '/supplier/dashboard'    // 供应商TL → 供应商门户
   if (roleType === 6) return '/dataset'              // R&D → 数据集中心
   if (roleType === 7) return '/dataset'              // 数据清洗 → 数据集管理
+  if (roleType >= 8 && roleType <= 12) return '/gnd/tasks'  // GND 域 → 测区任务
   return '/dashboard'                                    // 甲方PM/算法 → 仪表盘
 }
 
@@ -143,16 +147,35 @@ const fillDemo = (item) => {
   loginForm.password = item.password
 }
 
+function gndUserInfo(info) {
+  return { userName: info.name || info.username, roleType: info.roleType, supplierId: info.supplierId, domain: 'gnd', status: info.status }
+}
+function legacyUserInfo(info) {
+  return { ...info, domain: 'legacy', status: 'ACTIVE' }
+}
 const handleLogin = async () => {
   if (!loginForm.username || !loginForm.password) {
     return ElMessage.warning('请输入账号和密码')
   }
   loading.value = true
   try {
-    const { data } = await loginApi({ username: loginForm.username, password: loginForm.password })
-    userStore.setToken(data.token)
-    userStore.setUserInfo(data.userInfo)
-    router.push(homeByRole(data.userInfo.roleType))
+    let data
+    let isGnd = true
+    try {
+      const r = await gndLoginApi({ username: loginForm.username, password: loginForm.password })
+      data = r.data
+    } catch (e) {
+      if (e.code === 'INVALID_CREDENTIALS') {
+        // GND 无此账号 → 尝试旧平台账号
+        const r = await loginApi({ username: loginForm.username, password: loginForm.password })
+        data = r.data
+        isGnd = false
+      } else {
+        throw e // GND_USER_PENDING / GND_USER_DISABLED 等直接提示
+      }
+    }
+    userStore.setLogin({ token: data.token, userInfo: isGnd ? gndUserInfo(data.userInfo) : legacyUserInfo(data.userInfo) })
+    router.push(isGnd ? '/gnd/tasks' : homeByRole(data.userInfo.roleType))
   } finally {
     loading.value = false
   }
@@ -161,12 +184,28 @@ const handleLogin = async () => {
 const handleFeishuLogin = async () => {
   feishuLoading.value = true
   try {
+    // 先尝试 GND 域飞书（含注册申请），再尝试旧域飞书
+    let handled = false
+    try {
+      const r = await gndFeishuApi({ code: feishuForm.username, name: feishuForm.username })
+      const d = r.data
+      if (d.registered) {
+        ElMessage.success(d.message || '注册申请已提交，等待管理员审批')
+        handled = true
+      } else {
+        userStore.setLogin({ token: d.token, userInfo: gndUserInfo(d.userInfo) })
+        router.push('/gnd/tasks')
+        handled = true
+      }
+    } catch (e) {
+      if (e.code !== 'GND_USER_PENDING' && e.code !== 'GND_USER_DISABLED' && e.code !== 'INVALID_CREDENTIALS') throw e
+    }
+    if (handled) return
     const { data } = await feishuLoginApi({ username: feishuForm.username, password: feishuForm.password })
-    userStore.setToken(data.token)
-    userStore.setUserInfo(data.userInfo)
+    userStore.setLogin({ token: data.token, userInfo: legacyUserInfo(data.userInfo) })
     router.push(homeByRole(data.userInfo.roleType))
   } catch (e) {
-    ElMessage.warning('飞书登录暂未对接，请使用授权码或账号登录')
+    if (e.code !== 'INVALID_CREDENTIALS') ElMessage.warning('飞书登录失败，请使用账号密码登录')
   } finally {
     feishuLoading.value = false
   }
@@ -214,6 +253,8 @@ const handleCodeLogin = async () => {
   font-size: 15px;
   opacity: 0.9;
 }
+.gnd-entry { margin-top: 18px; }
+.gnd-entry-btn { width: 100%; }
 .copyright {
   position: absolute;
   bottom: 40px;

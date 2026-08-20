@@ -1,9 +1,8 @@
 <template>
-  <el-dialog v-model="createVisible" title="新建项目并派发" width="860px" :close-on-click-modal="false" @closed="resetCreate">
+  <el-dialog v-model="createVisible" title="新建项目" width="860px" :close-on-click-modal="false" @closed="resetCreate">
     <el-steps :active="createStep" align-center finish-status="success" class="create-steps">
       <el-step title="项目信息" />
       <el-step title="任务明细" />
-      <el-step title="派发设置" />
     </el-steps>
 
     <!-- 步骤1：项目信息 -->
@@ -69,33 +68,15 @@
       <div class="create-total">合计 {{ createForm.tasks.length }} 个任务 · 预估总额 ¥{{ createTotalPrice }}</div>
     </div>
 
-    <!-- 步骤3：派发设置 -->
-    <div v-show="createStep === 2" style="margin-top:20px">
-      <el-alert type="info" :closable="false" style="margin-bottom:16px">
-        <template #title>将为项目创建 {{ createForm.tasks.filter(t=>t.taskName.trim()).length }} 个任务{{ createForm.supplierId ? '，并派发给所选供应商' : '（暂不派发，创建后可再派发）' }}</template>
-      </el-alert>
-      <el-form label-width="90px">
-        <el-form-item label="供应商">
-          <el-select v-model="createForm.supplierId" placeholder="选择供应商（可跳过）" clearable style="width:100%" @focus="loadSuppliers">
-            <el-option v-for="s in supplierList" :key="s.id" :label="s.name + ' | 质量分' + s.qualityScore" :value="s.id" />
-          </el-select>
-        </el-form-item>
-        <div v-if="createSelectedSupplier" class="supplier-info">
-          <div class="si-row"><span>供应商</span><b>{{ createSelectedSupplier.name }}</b></div>
-          <div class="si-row"><span>联系人</span>{{ createSelectedSupplier.contact }}</div>
-          <div class="si-row"><span>产能(条/月)</span>{{ createSelectedSupplier.capacity?.toLocaleString() }}</div>
-          <div class="si-row"><span>质量分</span><b :style="{color: createSelectedSupplier.qualityScore >= 90 ? '#67c23a' : '#e6a23c'}">{{ createSelectedSupplier.qualityScore }}</b></div>
-        </div>
-        <el-form-item label="立即开工" style="margin-top:12px">
-          <el-switch v-model="createForm.immediateStart" active-text="派发后直接进入标注" />
-        </el-form-item>
-      </el-form>
-    </div>
+    <!-- 步骤2 底部提示：创建后需导入明细才能派发 -->
+    <el-alert v-if="createStep === 1" type="warning" :closable="false" style="margin-top:12px">
+      <template #title>任务创建后需先「导入明细」才能派发给供应商</template>
+    </el-alert>
 
     <template #footer>
       <el-button v-if="createStep > 0" @click="createStep--">上一步</el-button>
       <el-button @click="createVisible = false">取消</el-button>
-      <el-button v-if="createStep < 2" type="primary" @click="nextStep">下一步</el-button>
+      <el-button v-if="createStep < 1" type="primary" @click="nextStep">下一步</el-button>
       <el-button v-else type="primary" :loading="actionLoading" @click="submitCreate">创建项目</el-button>
     </template>
   </el-dialog>
@@ -107,7 +88,7 @@ import { ElMessage } from 'element-plus'
 import { Plus, Upload, Delete, Connection, UploadFilled, Document } from '@element-plus/icons-vue'
 import { ANNOTATE_TYPES } from '@/utils/constants'
 import { createProjectApi, splitProjectApi, parseProjectExcelApi } from '@/api/projects'
-import { createTaskApi, dispatchTaskApi, getSupplierListApi } from '@/api/tasks'
+import { createTaskApi } from '@/api/tasks'
 import { fetchGovernedDatasets, importDataset, previewSplitApi } from '@/api/governance'
 
 const emit = defineEmits(['created'])
@@ -116,17 +97,15 @@ const actionLoading = ref(false)
 const createVisible = ref(false)
 const createStep = ref(0)
 const step1FormRef = ref(null)
-const createForm = reactive({ name: '', annotateType: '', deadline: '', description: '', template: '', uploadPath: '', datasetId: null, bindMode: 'select', supplierId: null, immediateStart: true, tasks: [] })
+const createForm = reactive({ name: '', annotateType: '', deadline: '', description: '', template: '', uploadPath: '', datasetId: null, bindMode: 'select', tasks: [] })
 const uploadForm = reactive({ fileName: '', fileSize: 0, datasetName: '', itemCount: 30 })
 const createProjectRules = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
   annotateType: [{ required: true, message: '请选择标注类型', trigger: 'change' }]
 }
 const annotateTypes = ANNOTATE_TYPES
-const supplierList = ref([])
 const governanceDatasets = ref([])
 const createTotalPrice = computed(() => createForm.tasks.reduce((sum, t) => sum + (t.sampleCount || 0) * (t.unitPrice || 0), 0).toFixed(2))
-const createSelectedSupplier = computed(() => supplierList.value.find(s => s.id === createForm.supplierId))
 
 const addTaskRow = () => createForm.tasks.push({ taskName: '', uploadPath: createForm.uploadPath || '', annotateType: createForm.annotateType || '2D拉框', sampleCount: 0, unitPrice: 0.1, deadline: createForm.deadline || '', qaStandard: '' })
 const removeTaskRow = (i) => createForm.tasks.splice(i, 1)
@@ -134,14 +113,13 @@ const removeTaskRow = (i) => createForm.tasks.splice(i, 1)
 const resetCreate = () => {
   createStep.value = 0
   step1FormRef.value?.resetFields()
-  Object.assign(createForm, { name: '', annotateType: '', deadline: '', description: '', template: '', uploadPath: '', datasetId: null, bindMode: 'select', supplierId: null, immediateStart: true, tasks: [] })
+  Object.assign(createForm, { name: '', annotateType: '', deadline: '', description: '', template: '', uploadPath: '', datasetId: null, bindMode: 'select', tasks: [] })
   Object.assign(uploadForm, { fileName: '', fileSize: 0, datasetName: '', itemCount: 30 })
 }
 
 const open = () => { resetCreate(); addTaskRow(); createVisible.value = true }
 defineExpose({ open })
 
-const loadSuppliers = async () => { if (!supplierList.value.length) try { const { data } = await getSupplierListApi(); supplierList.value = data } catch {} }
 const loadGovernanceDatasets = async () => {
   if (governanceDatasets.value.length) return
   try {
@@ -228,31 +206,19 @@ const submitCreate = async () => {
       template: createForm.template, uploadPath: createForm.uploadPath,
       datasetId: finalDatasetId
     })
-    let dispatched = 0
     // 如果绑定了数据集 → 调用拆分 API（自动创建任务+复制数据）
     if (createForm.datasetId) {
       const splitJson = await splitProjectApi(project.id, { itemsPerTask: 10 })
       if (splitJson.code === 0) {
         const createdTasks = splitJson.data.tasks || []
         ElMessage.success(`项目创建成功，自动拆分 ${createdTasks.length} 个任务，共 ${splitJson.data.totalItems} 条数据`)
-        // 派发
-        if (createForm.supplierId) {
-          for (const t of createdTasks) {
-            await dispatchTaskApi(t.id, { supplierId: createForm.supplierId, immediateStart: createForm.immediateStart })
-            dispatched++
-          }
-        }
       }
     } else {
       // 手动添加的任务
       for (const task of validTasks) {
-        const { data: t } = await createTaskApi({ ...task, projectId: project.id })
-        if (createForm.supplierId) {
-          await dispatchTaskApi(t.id, { supplierId: createForm.supplierId, immediateStart: createForm.immediateStart })
-          dispatched++
-        }
+        await createTaskApi({ ...task, projectId: project.id })
       }
-      ElMessage.success(`项目创建成功，共 ${validTasks.length} 条任务` + (dispatched ? `，已派发 ${dispatched} 条` : ''))
+      ElMessage.success(`项目创建成功，共 ${validTasks.length} 条任务`)
     }
     createVisible.value = false
     emit('created')

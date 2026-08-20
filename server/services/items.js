@@ -3,61 +3,151 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ApiError } from '../lib/http.js'
 import { makeImage } from '../lib/images.js'
-import { tasks, taskItems } from '../repositories/data.js'
+import { tasks, taskItems, taskLogs } from '../repositories/data.js'
+import { nowText } from '../lib/time.js'
+import { notifyByRole } from './notifications.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const uploadsDir = path.resolve(__dirname, '../../uploads/screenshots')
 
-const ITEM_STATUS_MAP = { pending: '待标注', annotated: '已标注', rejected: '驳回', failed: '失败' }
+const ITEM_STATUS_MAP = {
+  pending: '待标注', annotating: '标注中', annotated: '待供应商质检',
+  submitted: '已提交', vendor_passed: '待甲方质检', accepted: '已验收',
+  rework: '返工中', rejected: '返工中', failed: '失败'
+}
 const VALID_STATUSES = Object.keys(ITEM_STATUS_MAP)
 
 function ensureDir() { if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true }) }
 
-export function getTaskItems(taskId) {
+// 文件名白名单清洗：仅保留字母数字 . _ - 中文，防止路径穿越（与 tasks.js safeName 一致）
+function safeFileName(name) {
+  return String(name || '').replace(/[^a-zA-Z0-9._\-\u4e00-\u9fa5]/g, '_')
+}
+
+// 数据隔离：供应商角色(3,4)仅能访问本供应商任务下的明细（与 workbench.js ensureSupplierScope 一致）
+function ensureTaskAccess(user, taskId) {
+  const task = tasks.find(t => t.id === taskId)
+  if (!task) throw new ApiError(404, 'TASK_NOT_FOUND', '任务不存在')
+  const supplierRoles = [3, 4]
+  if (supplierRoles.includes(user.roleType) && task.supplierId !== user.supplierId) {
+    throw new ApiError(403, 'FORBIDDEN', '无权访问其他供应商的数据')
+  }
+  return task
+}
+
+export function getTaskItems(user, taskId) {
+  ensureTaskAccess(user, taskId)
   return taskItems.filter(item => item.taskId === taskId)
 }
 
-export function updateItemStatus(taskId, itemId, body) {
+export function updateItemStatus(user, taskId, itemId, body) {
+  ensureTaskAccess(user, taskId)
   const item = taskItems.find(i => i.id === itemId && i.taskId === taskId)
   if (!item) throw new ApiError(404, 'NOT_FOUND', '明细不存在')
   const status = String(body.status || '').trim()
   if (!VALID_STATUSES.includes(status)) throw new ApiError(422, 'VALIDATION_ERROR', '无效状态')
+  // 供应商不能手动置为已验收（accepted 仅由甲方验收流程产生）
+  if ([3, 4].includes(user.roleType) && status === 'accepted') {
+    throw new ApiError(403, 'FORBIDDEN', '已验收状态仅由甲方验收产生，不能手动修改')
+  }
+  if ([3, 4].includes(user.roleType) && ['rejected', 'rework'].includes(status)) {
+    throw new ApiError(403, 'FORBIDDEN', '驳回/返工状态仅由甲方质检产生，供应商不能手动设置')
+  }
+  // 待甲方质检(vendor_passed) 是已提交后的自动状态，供应商不能手动设置
+  if ([3, 4].includes(user.roleType) && status === 'vendor_passed') {
+    throw new ApiError(403, 'FORBIDDEN', '待甲方质检状态由提交后自动流转产生，不能手动设置')
+  }
+  const prevStatus = item.status
   item.status = status
   item.failReason = String(body.failReason || '').trim()
   item.annotator = String(body.annotator || item.annotator || '').trim()
+  if (status === 'submitted') {
+    // 返修留痕：驳回(rework/rejected)后重新提交 → 记录第N次返修提交
+    if (['rework', 'rejected'].includes(prevStatus)) {
+      const n = (item.reworkCount || 0)
+      if (!Array.isArray(item.history)) item.history = []
+      item.history.push({ time: nowText(), actor: user.userName, action: 'resubmit', note: `第${n}次返修提交` })
+      item.lastResubmitAt = nowText()
+    }
+    const task = tasks.find(t => t.id === taskId)
+    notifyByRole(null, [1, 2], 'task', '待甲方质检提醒', `${user.userName} 将明细「${item.itemName}」改为已提交（任务：${task?.taskName || taskId}），待甲方质检`, 'task', taskId)
+    checkAllSubmittedNotify(user, taskId)
+  }
   return item
 }
 
-export function uploadScreenshot(taskId, itemId, body) {
+export function uploadScreenshot(user, taskId, itemId, body) {
+  ensureTaskAccess(user, taskId)
   ensureDir()
   const item = taskItems.find(i => i.id === itemId && i.taskId === taskId)
   if (!item) throw new ApiError(404, 'NOT_FOUND', '明细不存在')
   if (!body.data) throw new ApiError(422, 'VALIDATION_ERROR', '请提供截图数据')
   const ext = (body.fileName || '').split('.').pop() || 'png'
-  const fileName = `item_${itemId}_${Date.now()}.${ext}`
+  if (!/^[a-zA-Z0-9]{1,10}$/.test(ext)) throw new ApiError(422, 'VALIDATION_ERROR', '文件扩展名不合法')
+  const fileName = `item_${itemId}_${Date.now()}.${safeFileName(ext)}`
   const filePath = path.join(uploadsDir, fileName)
   fs.writeFileSync(filePath, Buffer.from(body.data, 'base64'))
   item.screenshot = fileName
   return { fileName: body.fileName || fileName, storedName: fileName }
 }
 
-export function updateItemStatusBatch(taskId, body) {
+export function updateItemStatusBatch(user, taskId, body) {
+  ensureTaskAccess(user, taskId)
   const { itemIds, status, failReason, annotator } = body
   if (!Array.isArray(itemIds) || !itemIds.length) throw new ApiError(422, 'VALIDATION_ERROR', '请选择明细')
   if (!VALID_STATUSES.includes(status)) throw new ApiError(422, 'VALIDATION_ERROR', '无效状态')
+  // 供应商批量限制：不能置已验收/驳回/返工（与单条一致）
+  if ([3, 4].includes(user.roleType) && status === 'accepted') {
+    throw new ApiError(403, 'FORBIDDEN', '已验收状态仅由甲方验收产生，不能手动修改')
+  }
+  if ([3, 4].includes(user.roleType) && ['rejected', 'rework'].includes(status)) {
+    throw new ApiError(403, 'FORBIDDEN', '驳回/返工状态仅由甲方质检产生，供应商不能手动设置')
+  }
+  if ([3, 4].includes(user.roleType) && status === 'vendor_passed') {
+    throw new ApiError(403, 'FORBIDDEN', '待甲方质检状态由提交后自动流转产生，不能手动设置')
+  }
   let count = 0
+  const batchStatus = status
   for (const id of itemIds) {
     const item = taskItems.find(i => i.id === id && i.taskId === taskId)
     if (!item) continue
+    const prev = item.status
     item.status = status
     item.failReason = String(failReason || '').trim()
     item.annotator = String(annotator || '').trim()
+    // 返修留痕：驳回后重新提交 → 记录第N次返修提交
+    if (batchStatus === 'submitted' && ['rework', 'rejected'].includes(prev)) {
+      if (!Array.isArray(item.history)) item.history = []
+      item.history.push({ time: nowText(), actor: user.userName, action: 'resubmit', note: `第${item.reworkCount || 0}次返修提交` })
+      item.lastResubmitAt = nowText()
+    }
     count++
+  }
+  if (batchStatus === 'submitted' && count > 0) {
+    const task = tasks.find(t => t.id === taskId)
+    notifyByRole(null, [1, 2], 'task', '待甲方质检提醒', `${user.userName} 将任务「${task?.taskName || taskId}」的 ${count} 条明细改为已提交，待甲方质检`, 'task', taskId)
+    checkAllSubmittedNotify(user, taskId)
   }
   return { updated: count }
 }
 
-export function importTaskItems(taskId, body) {
+// 任务下全部明细已提交 → 任务自动进入待甲方质检(CLIENT_QA)并推送飞书提醒
+function checkAllSubmittedNotify(user, taskId) {
+  const task = tasks.find(t => t.id === taskId)
+  if (!task) return
+  const its = taskItems.filter(i => i.taskId === taskId)
+  if (!its.length) return
+  const allDone = its.every(i => ['submitted', 'accepted', 'vendor_passed'].includes(i.status))
+  if (allDone && !['CLIENT_QA', 'ACCEPTED', 'ARCHIVED'].includes(task.state)) {
+    task.state = 'CLIENT_QA'
+    task.submitTime = nowText()
+    taskLogs.push({ taskId: task.id, time: nowText(), content: user.userName + ' 全部明细已提交，任务进入待甲方质检', type: 'warning' })
+    notifyByRole(null, [1, 2], 'task', '待甲方质检提醒', `${user.userName} 已将任务「${task.taskName}」全部明细改为已提交，任务状态为待甲方质检，请安排验收`, 'task', taskId)
+  }
+}
+
+export function importTaskItems(user, taskId, body) {
+  ensureTaskAccess(user, taskId)
   const rows = body.rows
   if (!Array.isArray(rows) || rows.length === 0) throw new ApiError(422, 'VALIDATION_ERROR', '数据为空')
   const maxId = Math.max(...taskItems.map(i => i.id), 0)
@@ -86,20 +176,23 @@ export function importTaskItems(taskId, body) {
   return { imported }
 }
 
-export function uploadItemPackage(taskId, itemId, body) {
+export function uploadItemPackage(user, taskId, itemId, body) {
+  ensureTaskAccess(user, taskId)
   ensureDir()
   const item = taskItems.find(i => i.id === itemId && i.taskId === taskId)
   if (!item) throw new ApiError(404, 'NOT_FOUND', '明细不存在')
   if (!body.data) throw new ApiError(422, 'VALIDATION_ERROR', '请提供数据')
   const ext = (body.fileName || '').split('.').pop() || 'zip'
-  const fileName = `pkg_${itemId}_${Date.now()}.${ext}`
+  if (!/^[a-zA-Z0-9]{1,10}$/.test(ext)) throw new ApiError(422, 'VALIDATION_ERROR', '文件扩展名不合法')
+  const fileName = `pkg_${itemId}_${Date.now()}.${safeFileName(ext)}`
   const filePath = path.join(uploadsDir, fileName)
   fs.writeFileSync(filePath, Buffer.from(body.data, 'base64'))
   item.dataPackage = fileName
   return { fileName: body.fileName || fileName }
 }
 
-export function deleteTaskItem(taskId, itemId) {
+export function deleteTaskItem(user, taskId, itemId) {
+  ensureTaskAccess(user, taskId)
   const idx = taskItems.findIndex(i => i.id === itemId && i.taskId === taskId)
   if (idx < 0) throw new ApiError(404, 'NOT_FOUND', '明细不存在')
   taskItems.splice(idx, 1)
@@ -168,7 +261,8 @@ function normalizeItemStatus(raw) {
   return ITEM_STATUS_ALIASES[v] || ITEM_STATUS_ALIASES[String(raw || '').trim()] || 'pending'
 }
 
-export async function importTaskItemsFromFile(taskId, body) {
+export async function importTaskItemsFromFile(user, taskId, body) {
+  ensureTaskAccess(user, taskId)
   const fileData = body.fileData
   const fileName = String(body.fileName || 'data.csv').toLowerCase()
   if (!fileData) throw new ApiError(422, 'VALIDATION_ERROR', '请上传文件')

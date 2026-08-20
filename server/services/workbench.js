@@ -1,7 +1,29 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { ApiError } from '../lib/http.js'
 import { tasks, taskItems, auditLogs, ERROR_TYPES, submissions, taskLogs } from '../repositories/data.js'
 import { createNotification } from './notifications.js'
 import { nowText } from '../lib/time.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const rejectImgDir = path.resolve(__dirname, '../../uploads/screenshots')
+function ensureRejectImgDir() { if (!fs.existsSync(rejectImgDir)) fs.mkdirSync(rejectImgDir, { recursive: true }) }
+function saveRejectImages(item, images) {
+  if (!Array.isArray(images) || !images.length) return
+  const list = []
+  for (const img of images) {
+    if (!img || !img.data || !img.fileName) continue
+    const ext = String(img.fileName).split('.').pop() || 'png'
+    if (!/^[a-zA-Z0-9]{1,10}$/.test(ext)) continue
+    const safeName = String(img.fileName).replace(/[^a-zA-Z0-9._\-\u4e00-\u9fa5]/g, '_')
+    const storedName = `reject_${item.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`
+    ensureRejectImgDir()
+    try { fs.writeFileSync(path.join(rejectImgDir, storedName), Buffer.from(img.data, 'base64')) } catch { continue }
+    list.push({ fileName: safeName, storedName })
+  }
+  if (list.length) item.rejectImages = list
+}
 
 // 检查任务下明细状态，条件满足时自动推进任务状态
 function autoAdvanceTask(taskId) {
@@ -10,12 +32,8 @@ function autoAdvanceTask(taskId) {
   const items = taskItems.filter(i => i.taskId === taskId)
   if (!items.length) return
 
-  // 全部 annotated → 任务自动进入 VENDOR_QA
-  if (task.state === 'ANNOTATING' && items.every(i => ['annotated','vendor_passed','accepted','rework'].includes(i.status))) {
-    task.state = 'VENDOR_QA'
-    taskLogs.push({ taskId, time: nowText(), content: '所有明细已标注完毕，自动进入供应商质检', type: 'primary' })
-    auditLogs.push({ action: 'task.autoVendorQa', taskId, at: nowText() })
-  }
+  // 注意：进入供应商质检由「完成作业」显式触发（供应商标注完 → completeWork → VENDOR_QA），
+  // 不自动跳转，保证流程节点完整可控
   // 全部 accepted → 自动验收；或无残留 vendor_passed（QA 抽样通过）
   if (items.every(i => i.status === 'accepted')) {
     task.state = 'ACCEPTED'
@@ -23,24 +41,11 @@ function autoAdvanceTask(taskId) {
     taskLogs.push({ taskId, time: nowText(), content: '所有明细已通过甲方质检，验收完成', type: 'success' })
     auditLogs.push({ action: 'task.autoAccepted', taskId, at: nowText() })
     markAcceptedSubmission(taskId)
-    import('./tasks.js').then(m => m.pushAcceptanceReport(taskId, '系统')).catch(() => {})
-  } else if (items.filter(i => i.status === 'vendor_passed').length === 0 && items.some(i => i.status === 'accepted')) {
-    task.state = 'ACCEPTED'
-    task.acceptTime = nowText()
-    taskLogs.push({ taskId, time: nowText(), content: '甲方质检已通过，验收完成', type: 'success' })
-    auditLogs.push({ action: 'task.autoAccepted', taskId, at: nowText() })
-    markAcceptedSubmission(taskId)
+    import('./settlement.js').then(m => m.autoGenerateSettlement(taskId, '系统')).catch(() => {})
     import('./tasks.js').then(m => m.pushAcceptanceReport(taskId, '系统')).catch(() => {})
   }
-  // 甲方 QA pass 后，任务在 CLIENT_QA 状态 → 直接验收
-  if (task.state === 'CLIENT_QA' && items.some(i => i.status === 'accepted')) {
-    task.state = 'ACCEPTED'
-    task.acceptTime = nowText()
-    taskLogs.push({ taskId, time: nowText(), content: '甲方质检通过，验收完成', type: 'success' })
-    auditLogs.push({ action: 'task.autoAccepted', taskId, at: nowText() })
-    markAcceptedSubmission(taskId)
-    import('./tasks.js').then(m => m.pushAcceptanceReport(taskId, '系统')).catch(() => {})
-  }
+  // 注意：仅当任务下全部明细都验收通过(accepted)时才将任务置为「已验收」；
+  // 部分验收时任务保持「待甲方质检」(CLIENT_QA)，体现验收尚未完成
 }
 
 // 任务自动验收时，同步最新提交记录的质检结果
@@ -62,6 +67,7 @@ function markAcceptedSubmission(taskId) {
 // 任意质检驳回 -> rework(返工, IS_REWORK=true) -> 重新提交
 export const ITEM_STATUS_MAP = {
   pending: '待标注', annotating: '标注中', annotated: '待供应商质检',
+  submitted: '已提交',
   vendor_passed: '待甲方质检', accepted: '已验收', rework: '返工中',
   rejected: '返工中', failed: '失败'
 }
@@ -116,18 +122,8 @@ export function getWorkbenchQueue(user, taskId) {
       items = items.filter(i => ['annotated', 'rework'].includes(i.status))
     }
   } else if (user.roleType === 2) {
-    items = items.filter(i => i.status === 'vendor_passed')
-    // QA 抽检率：按配置比例随机抽取（超时未抽中的自动通过）
-    const rate = task.qaSamplingRate != null ? Number(task.qaSamplingRate) : 1.0
-    if (rate < 1.0 && items.length > 1) {
-      const seed = task.id * 7919 + 271828 // 稳定种子保证同任务多次刷新一致
-      const shuffled = items.slice().sort((a, b) => {
-        return ((seed * (a.id + 1) * 9301) % 233280) - ((seed * (b.id + 1) * 9301) % 233280)
-      })
-      const sampleSize = Math.max(1, Math.ceil(items.length * rate))
-      const sampled = new Set(shuffled.slice(0, sampleSize).map(i => i.id))
-      items = items.filter(i => sampled.has(i.id))
-    }
+    // 甲方质检：全量显示「已提交(submitted)」与「待甲方质检(vendor_passed)」明细（不做抽样）
+    items = items.filter(i => ['submitted', 'vendor_passed'].includes(i.status))
   } else if (user.roleType === 6) {
     // 算法工程师：仅见甲方验收通过的数据（数据流：标注员→供应商→甲方→算法）
     items = items.filter(i => i.status === 'accepted')
@@ -252,8 +248,10 @@ function qaReview(user, itemId, body, level) {
   ensureSupplierScope(user, task)
   const isVendor = level === 'vendor'
   // 返工(rework)数据可被质检再次处理：供应商重新内审 or 甲方重新验收
-  const expectStatus = isVendor ? 'annotated' : 'vendor_passed'
-  if (item.status !== expectStatus && item.status !== 'rework') {
+  // 甲方可验收：已提交(submitted)/待甲方质检(vendor_passed)/返工(rework)
+  const expectStatus = isVendor ? 'annotated' : ['submitted', 'vendor_passed']
+  const expectOk = Array.isArray(expectStatus) ? expectStatus.includes(item.status) : item.status === expectStatus
+  if (!expectOk && item.status !== 'rework') {
     throw new ApiError(409, 'STATE_CONFLICT', '当前状态不可质检')
   }
   if (item.status === 'rework') item.isRework = true
@@ -278,6 +276,8 @@ function qaReview(user, itemId, body, level) {
     addHistory(item, user, isVendor ? 'vendor_pass' : 'client_pass')
     autoAdvanceTask(item.taskId)
   } else {
+    // 供应商无驳回权限，驳回仅甲方可操作
+    if (isVendor) throw new ApiError(403, 'FORBIDDEN', '供应商无驳回权限，驳回仅甲方可操作')
     const errorTypes = Array.isArray(body.errorTypes) ? body.errorTypes.filter(t => VALID_ERROR_TYPES.includes(t)) : []
     const note = String(body.note || '').trim()
     if (errorTypes.length === 0) throw new ApiError(422, 'VALIDATION_ERROR', '驳回时必须勾选错误分类')
@@ -287,6 +287,7 @@ function qaReview(user, itemId, body, level) {
     item.isRework = true
     item.errorTypes = errorTypes
     item.rejectNote = note
+    saveRejectImages(item, body.images)
     item.reworkCount = (item.reworkCount || 0) + 1
     if (!isVendor) {
       item.clientReviewed = true
@@ -315,15 +316,8 @@ export function vendorQaItem(user, itemId, body) {
 export function clientQaItem(user, itemId, body) {
   if (![1, 2].includes(user.roleType)) throw new ApiError(403, 'FORBIDDEN', '仅甲方质检可操作')
   const item = qaReview(user, itemId, body, 'client')
-  // 甲方 pass → 强制验收任务，确保状态流转
+  // 甲方单条验收：任务状态由 autoAdvanceTask 根据全部明细进度决定（全部验收完才 ACCEPTED）
   if (body.pass) {
-    const task = tasks.find(t => t.id === item.taskId)
-    if (task && task.state !== 'ACCEPTED') {
-      task.state = 'ACCEPTED'
-      task.acceptTime = nowText()
-      auditLogs.push({ action: 'task.autoAccepted', taskId: task.id, at: nowText() })
-      taskLogs.push({ taskId: task.id, time: nowText(), content: user.userName + ' 甲方质检通过，验收完成（自动流转）', type: 'success' })
-    }
     // 同步更新提交记录的质检结果
     const latest = submissions.filter(s => s.taskId === item.taskId).at(-1)
     if (latest) {
@@ -333,8 +327,6 @@ export function clientQaItem(user, itemId, body) {
       latest.score = body.score !== undefined ? Number(body.score) : (latest.score ?? 100)
       latest.reviewComment = String(body.note || body.comment || '').trim() || latest.reviewComment || '质检通过'
     }
-    // 验收通过 → 自动生成结算单
-    import('./settlement.js').then(m => m.autoGenerateSettlement(task.id, user.userName)).catch(() => {})
   }
   return item
 }

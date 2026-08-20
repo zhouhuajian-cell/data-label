@@ -39,7 +39,7 @@
                 <div class="i-meta">{{ it.annotator||'-' }} · {{ (it.annotation?.boxes||[]).length }}框<span v-if="it.isRework" style="color:#f56c6c"> · 返工</span></div>
               </div>
               <el-button size="small" type="success" @click.stop="quickPass(it)">通过</el-button>
-              <el-button size="small" type="danger" @click.stop="openRejectDlg(it)">驳回</el-button>
+              <el-button v-if="level === 'client'" size="small" type="danger" @click.stop="openRejectDlg(it)">驳回</el-button>
             </div>
             <el-empty v-if="!items.length" :image-size="50" description="暂无待检数据" />
           </div>
@@ -49,14 +49,20 @@
     </div>
 
     <!-- 驳回弹窗 -->
-    <el-dialog v-model="rejectVisible" title="驳回明细" width="460px">
+    <el-dialog v-model="rejectVisible" title="驳回明细" width="460px" @open="focusRejectDialog">
       <div style="margin-bottom:6px;font-weight:600">{{ rejectItem?.itemName }}</div>
       <div class="err-title">错误分类（必选）</div>
       <el-checkbox-group v-model="rejectForm.errorTypes" class="err-group">
         <el-checkbox v-for="t in errorTypes" :key="t.value" :value="t.value" :label="t.label" />
       </el-checkbox-group>
       <div class="err-title" style="margin-top:10px">驳回批注（必填）</div>
-      <el-input v-model="rejectForm.note" type="textarea" :rows="3" placeholder="标注员可据此修改" />
+      <el-input v-model="rejectForm.note" type="textarea" :rows="3" placeholder="请填写驳回意见" />
+      <div class="err-title" style="margin-top:10px">问题截图（选填，支持 Ctrl+V 粘贴）</div>
+      <div ref="rejectBodyRef" class="reject-body" tabindex="-1" @paste="onPasteImage">
+      <el-upload :auto-upload="false" :limit="5" accept="image/*" list-type="picture-card" v-model:file-list="rejectForm.fileList" :on-change="onRejectImgChange" :on-remove="onRejectImgRemove" :on-exceed="() => ElMessage.warning('最多 5 张')">
+        <el-icon><Plus /></el-icon>
+      </el-upload>
+      </div>
       <template #footer>
         <el-button @click="rejectVisible=false">取消</el-button>
         <el-button type="danger" @click="confirmReject">确认驳回</el-button>
@@ -89,13 +95,56 @@ let imgEl = null
 const errorTypes = REJECT_ERROR_TYPES
 const rejectVisible = ref(false)
 const rejectItem = ref(null)
-const rejectForm = reactive({ errorTypes: [], note: '' })
+const rejectForm = reactive({ errorTypes: [], note: '', fileList: [], images: [] })
+const onRejectImgChange = (file) => {
+  const raw = file.raw
+  if (!raw) return
+  const r = new FileReader()
+  r.onload = (e) => { rejectForm.images.push({ fileName: raw.name, data: e.target.result.split(',')[1] }) }
+  r.readAsDataURL(raw)
+}
+const onRejectImgRemove = (file) => {
+  const idx = rejectForm.images.findIndex(i => i.fileName === file.name)
+  if (idx >= 0) rejectForm.images.splice(idx, 1)
+}
+const rejectBodyRef = ref(null)
+const focusRejectDialog = () => { rejectBodyRef.value && rejectBodyRef.value.focus() }
+const onPasteImage = (e) => {
+  const items = e.clipboardData && e.clipboardData.items
+  if (!items) return
+  for (const it of items) {
+    if (it.type && it.type.startsWith('image/')) {
+      const file = it.getAsFile()
+      if (!file) return
+      const r = new FileReader()
+      r.onload = (ev) => {
+        const name = 'pasted-' + Date.now() + '.png'
+        rejectForm.fileList.push({ name, url: ev.target.result, status: 'success' })
+        rejectForm.images.push({ fileName: name, data: ev.target.result.split(',')[1] })
+      }
+      r.readAsDataURL(file)
+      e.preventDefault()
+      break
+    }
+  }
+}
 
 async function loadTasks() {
   if (level.value === 'client') {
     try {
       const res = await getTaskListApi({ pageSize: 200 })
-      taskList.value = (res.data || []).filter(t => t.state === 'CLIENT_QA')
+      const all = res.data || []
+      // 甲方可见：任务状态为待甲方质检(CLIENT_QA)，或任务下有已提交(submitted/vendor_passed)明细（部分提交也能看到）
+      const list = []
+      for (const t of all) {
+        if (t.state === 'CLIENT_QA') { list.push(t); continue }
+        try {
+          const { data } = await getTaskDetailApi(t.id)
+          const hasPending = (data.items || []).some(i => ['submitted', 'vendor_passed'].includes(i.status))
+          if (hasPending) list.push(t)
+        } catch {}
+      }
+      taskList.value = list
       if (taskList.value.length && !currentTaskId.value) await selectTask(taskList.value[0])
     } catch {}
   } else {
@@ -160,12 +209,6 @@ async function quickPass(it) {
   try {
     const fn = level.value === 'client' ? clientQaItem : vendorQaItem
     await fn(it.id, { pass: true })
-    // 甲方验收：同时调用任务级验收，双保险确保状态流转
-    if (level.value === 'client') {
-      try {
-        await reviewTaskApi(currentTaskId.value, { pass: true, score: 100, comment: '质检通过' })
-      } catch {}
-    }
     ElMessage.success('已通过')
     loadQueue(); loadTasks()
   } catch {}
@@ -173,7 +216,7 @@ async function quickPass(it) {
 
 function openRejectDlg(it) {
   if (level.value === 'vendor' && currentTask.value?.qaClaimedBy && currentTask.value.qaClaimedBy !== userStore.userInfo.id) { ElMessage.warning('该质检任务已被他人领取'); return }
-  rejectItem.value = it; rejectForm.errorTypes = []; rejectForm.note = ''; rejectVisible.value = true
+  rejectItem.value = it; rejectForm.errorTypes = []; rejectForm.note = ''; rejectForm.fileList = []; rejectForm.images = []; rejectVisible.value = true
 }
 
 async function confirmReject() {
@@ -181,7 +224,7 @@ async function confirmReject() {
   if (rejectForm.note.trim().length < 2) { ElMessage.warning('请填写驳回批注'); return }
   try {
     const fn = level.value === 'client' ? clientQaItem : vendorQaItem
-    await fn(rejectItem.value.id, { pass: false, errorTypes: rejectForm.errorTypes, note: rejectForm.note })
+    await fn(rejectItem.value.id, { pass: false, errorTypes: rejectForm.errorTypes, note: rejectForm.note, images: rejectForm.images })
     ElMessage.success('已驳回')
     rejectVisible.value = false; loadQueue()
   } catch {}
@@ -217,4 +260,6 @@ onMounted(loadTasks)
 .i-row:hover { background: #f5f7fa; } .i-row.cur { background: #ecf5ff; border-color: #409eff; }
 .i-info { flex: 1; min-width: 0; } .i-name { font-size: 13px; font-weight: 500; } .i-meta { font-size: 11px; color: #909399; margin-top: 2px; }
 .err-title { font-size: 13px; font-weight: bold; margin-bottom: 4px; } .err-group { display: flex; flex-wrap: wrap; gap: 4px; }
+.reject-body { outline: none; }
+.reject-body { outline: none; }
 </style>

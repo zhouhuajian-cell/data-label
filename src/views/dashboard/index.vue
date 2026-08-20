@@ -81,7 +81,7 @@ const statCards = ref([
   { key: 'rework', val: 0, label: '返工积压', color: '#f56c6c' }
 ])
 
-const STATUS_LABELS = { unassigned: '待指派', annotating: '标注中', vendorQA: '供应商质检', clientQA: '甲方质检', accepted: '已验收', rejected: '驳回' }
+const STATUS_LABELS = { unassigned: '待标注', annotating: '标注中', vendorQA: '供应商质检', clientQA: '已提交待甲方验收', accepted: '已验收', rejected: '驳回' }
 
 function ffrColor(ffr) { return ffr === null ? '#909399' : ffr >= 0.95 ? '#67c23a' : ffr >= 0.9 ? '#e6a23c' : '#f56c6c' }
 

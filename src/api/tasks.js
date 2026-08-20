@@ -53,6 +53,10 @@ export function updateTaskApi(id, payload) {
   return request('/tasks/' + id, { method: 'PUT', body: payload })
 }
 
+export function updateTaskStateApi(id, state) {
+  return request('/tasks/' + id + '/status', { method: 'PUT', body: { state } })
+}
+
 export function deleteTaskApi(id) {
   return request('/tasks/' + id, { method: 'DELETE' })
 }

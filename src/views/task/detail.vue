@@ -18,9 +18,6 @@
             <!-- 甲方操作 -->
             <el-button v-if="showReview" type="success" @click="reviewTaskVisible = true">质检验收</el-button>
             <el-button v-if="showDispatch" type="primary" @click="dispatchSingle">派发任务</el-button>
-
-            <!-- 标注员操作 -->
-            <el-button v-if="showWorkbench" type="success" @click="$router.push('/workbench/' + taskInfo.id)">进入标注工作台</el-button>
           </div>
         </div>
       </template>
@@ -67,13 +64,34 @@
       </el-table>
     </el-card>
 
+    <el-card class="items-card" shadow="hover" v-if="items.length">
+      <template #header><span>任务明细（{{ items.length }} 条）</span></template>
+      <el-table :data="items" border size="small" max-height="320">
+        <el-table-column label="明细名称" prop="itemName" min-width="180" show-overflow-tooltip />
+        <el-table-column label="数据上传路径" min-width="220" show-overflow-tooltip><template #default="s">{{ s.row.uploadPath || '-' }}</template></el-table-column>
+        <el-table-column label="状态" width="150"><template #default="s"><el-select :model-value="s.row.status" size="small" @change="(v) => onChangeItemStatus(s.row, v)"><el-option v-for="(label, code) in editableItemStates" :key="code" :label="label" :value="code" /></el-select></template></el-table-column>
+        <el-table-column label="问题截图" width="150">
+          <template #default="s">
+            <div v-if="(s.row.rejectImages || []).length" style="display:flex;gap:4px">
+              <el-image v-for="img in s.row.rejectImages" :key="img.storedName" :src="imgUrl(img.storedName)" :preview-src-list="s.row.rejectImages.map(i => imgUrl(i.storedName))" :initial-index="0" style="width:44px;height:44px;border-radius:4px;cursor:pointer" fit="cover" preview-teleported>
+                <template #error><div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#c0c4cc;background:#f5f7fa;border-radius:4px">图</div></template>
+              </el-image>
+            </div>
+            <span v-else style="color:#c0c4cc">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="驳回备注" min-width="160" show-overflow-tooltip><template #default="s"><span :style="s.row.rejectNote ? {color:'#f56c6c'} : {color:'#c0c4cc'}">{{ s.row.rejectNote || '-' }}</span></template></el-table-column>
+        <el-table-column label="返修次数" width="90"><template #default="s"><el-tag v-if="s.row.reworkCount" size="small" type="warning">第{{ s.row.reworkCount }}次返修</el-tag><span v-else style="color:#c0c4cc">-</span></template></el-table-column>
+      </el-table>
+    </el-card>
+
     <el-card class="norm-card" shadow="hover">
       <template #header>标注规范</template>
       <div class="norm-content" v-html="taskInfo.qaStandard"></div>
     </el-card>
 
     <!-- 提交交付弹窗 -->
-    <DeliverModal v-model:visible="deliverVisible" :task-info="taskInfo" @success="loadDetail" />
+    <DeliverModal v-model:visible="deliverVisible" :task-info="taskInfo" :items="items" @success="loadDetail" />
 
     <!-- 质检验收弹窗 -->
     <el-dialog v-model="reviewTaskVisible" title="质检验收" width="480px">
@@ -107,7 +125,7 @@
             <el-option v-for="s in supplierList" :key="s.id" :label="s.name + ' | 质量分' + s.qualityScore" :value="s.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="立即开工"><el-switch v-model="dispatchForm.immediateStart" active-text="派发后直接进入标注" /></el-form-item>
+        <el-form-item label="立即开工"><el-switch v-model="dispatchForm.immediateStart" active-text="派发后立即开工" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dispatchVisible = false">取消</el-button>
@@ -125,8 +143,9 @@ import { ElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import { getTaskDetailApi, acceptTaskApi, completeWorkApi, dispatchTaskApi, reviewTaskApi, getSupplierListApi } from '@/api/tasks'
 import { useUserStore } from '@/store/user'
-import { getTaskStateText, getTaskStateType, REJECT_ERROR_TYPES } from '@/utils/constants'
+import { getTaskStateText, getTaskStateType, REJECT_ERROR_TYPES, ITEM_STATUS_MAP } from '@/utils/constants'
 import DeliverModal from '@/components/task/DeliverModal.vue'
+import { updateTaskItemApi } from '@/api/items'
 
 const route = useRoute()
 const router = useRouter()
@@ -138,6 +157,15 @@ const actionLoading = ref(false)
 const taskInfo = ref({})
 const stateLog = ref([])
 const versionList = ref([])
+const items = ref([])
+const editableItemStates = {
+  pending: '待标注', annotating: '标注中', annotated: '待供应商质检', submitted: '已提交',
+  failed: '失败'
+}
+const imgUrl = (storedName) => '/api/files/download/' + storedName + '?token=' + (localStorage.getItem('token') || '')
+const onChangeItemStatus = async (row, status) => {
+  try { await updateTaskItemApi(taskInfo.value.id, row.id, { status }); row.status = status; ElMessage.success('明细状态已更新') } catch { ElMessage.error('状态更新失败') }
+}
 const supplierList = ref([])
 
 const deliverVisible = ref(false)
@@ -147,7 +175,6 @@ const dispatchVisible = ref(false)
 // 角色/状态 → 按钮显隐
 const isSupplier = computed(() => userStore.userInfo.roleType === 3)
 const isBuyer = computed(() => [1, 2].includes(userStore.userInfo.roleType))
-const isAnnotator = computed(() => userStore.userInfo.roleType === 4)
 
 const showAccept = computed(() => isSupplier.value && taskInfo.value.state === 'UNASSIGNED' && taskInfo.value.supplierId === userStore.userInfo.supplierId)
 const showCompleteWork = computed(() => isSupplier.value && taskInfo.value.state === 'ANNOTATING')
@@ -155,7 +182,6 @@ const showSubmit = computed(() => isSupplier.value && taskInfo.value.state === '
 const showResubmit = computed(() => isSupplier.value && taskInfo.value.state === 'REJECTED')
 const showReview = computed(() => isBuyer.value && taskInfo.value.state === 'CLIENT_QA')
 const showDispatch = computed(() => isBuyer.value && ['UNASSIGNED', 'REJECTED'].includes(taskInfo.value.state))
-const showWorkbench = computed(() => isAnnotator.value && taskInfo.value.annotateType === '2D拉框' && ['ANNOTATING', 'REJECTED'].includes(taskInfo.value.state))
 
 // 质检验收
 const reviewFormRef = ref(null)
@@ -197,8 +223,8 @@ const confirmDispatch = async () => {
 }
 
 // 接单/完成作业
-const onAccept = async () => { try { await acceptTaskApi(taskInfo.value.id); ElMessage.success('已接单'); loadDetail() } catch {} }
-const onCompleteWork = async () => { try { await completeWorkApi(taskInfo.value.id); ElMessage.success('作业完成，请提交交付'); loadDetail() } catch {} }
+const onAccept = async () => { try { await acceptTaskApi(taskInfo.value.id); ElMessage.success('已接单，进入标注作业'); loadDetail() } catch {} }
+const onCompleteWork = async () => { try { await completeWorkApi(taskInfo.value.id); ElMessage.success('作业完成，可提交质检'); loadDetail() } catch {} }
 
 const loadSuppliers = async () => { if (!supplierList.value.length) try { const { data } = await getSupplierListApi(); supplierList.value = data } catch {} }
 
@@ -233,6 +259,7 @@ const loadDetail = async () => {
     taskInfo.value = data.task
     stateLog.value = data.stateLog
     versionList.value = data.versions
+    items.value = data.items || []
   } finally { loading.value = false }
 }
 

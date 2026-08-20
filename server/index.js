@@ -106,14 +106,24 @@ const server = http.createServer((req, res) => {
   }).finally(() => saveStore())
 })
 
-// 启动：加载本地持久化数据；首次启动注入演示种子数据
-if (!loadStore()) {
-  seedDemoData()
-  saveStore()
+// 启动：加载本地持久化数据（优先 MySQL，回退 db.json）；首次启动注入演示种子数据
+async function bootstrap() {
+  const loaded = await loadStore()
+  if (!loaded) {
+    seedDemoData()
+    await saveStore()
+  }
+  // 数据治理种子（无论是否已持久化都要补注入，仅首次时创建）
+  seedGovernanceDemo()
+  await saveStore()
+  server.listen(config.port, config.host, () => {
+    console.log('zhiyun-label-api listening on http://' + config.host + ':' + config.port)
+  })
 }
-// 数据治理种子（无论是否已持久化都要补注入，仅首次时创建）
-seedGovernanceDemo()
-saveStore()
+bootstrap().catch(error => {
+  console.error('服务启动失败:', error.message)
+  process.exit(1)
+})
 
 // 截止时间提醒（提前2天推送飞书）
 import('./services/deadline-reminder.js').then(m => m.startDeadlineReminder()).catch(() => {})
@@ -145,6 +155,4 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 process.on('SIGINT', () => gracefulShutdown('SIGINT'))
 
-server.listen(config.port, config.host, () => {
-  console.log('zhiyun-label-api listening on http://' + config.host + ':' + config.port)
-})
+

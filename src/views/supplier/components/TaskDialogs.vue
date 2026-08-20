@@ -55,7 +55,7 @@
         <div class="si-row"><span>在执任务</span>{{ dispatchSelectedSupplier.activeTaskCount }}</div>
       </div>
       <el-form-item label="立即开工" style="margin-top:12px">
-        <el-switch v-model="dispatchForm.immediateStart" active-text="派发后直接进入标注" />
+        <el-switch v-model="dispatchForm.immediateStart" active-text="派发后立即开工" />
       </el-form-item>
       <el-form-item label="QA抽检率">
         <el-slider v-model="dispatchForm.qaSamplingRate" :min="0.1" :max="1" :step="0.1" :format-tooltip="(v) => (v*100).toFixed(0) + '%'" style="width:100%" />

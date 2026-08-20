@@ -46,7 +46,7 @@ export async function pushProjectSummary(user, projectId) {
   const projTasks = tasks.filter(t => t.projectId === projectId)
   const stateMap = {}, acceptedCount = projTasks.filter(t => t.state === 'ACCEPTED').length
   projTasks.forEach(t => { stateMap[t.state] = (stateMap[t.state] || 0) + 1 })
-  const STATUS_CN = { UNASSIGNED: '待指派', ANNOTATING: '标注中', VENDOR_QA: '供应商质检', CLIENT_QA: '甲方质检', ACCEPTED: '已验收', REJECTED: '驳回', ARCHIVED: '已归档' }
+  const STATUS_CN = { UNASSIGNED: '待标注', ANNOTATING: '标注中', VENDOR_QA: '供应商质检', CLIENT_QA: '已提交待甲方验收', ACCEPTED: '已验收', REJECTED: '驳回', ARCHIVED: '已归档' }
 
   const lines = []
   lines.push(`**项目**：${project.name}`)

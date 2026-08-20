@@ -23,8 +23,10 @@ const DOWNLOAD_MIME = {
  * @param {string} downloadName 下载展示的文件名
  */
 export function streamDownload(res, baseDir, relPath, downloadName) {
-  const filePath = path.join(baseDir, ...String(relPath).split('/'))
-  if (!filePath.startsWith(baseDir) || !fs.existsSync(filePath)) {
+  const rootDir = path.resolve(baseDir)
+  const filePath = path.resolve(rootDir, ...String(relPath).split('/'))
+  const relativePath = path.relative(rootDir, filePath)
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath) || !fs.existsSync(filePath)) {
     throw new ApiError(404, 'NOT_FOUND', '文件不存在')
   }
   const ext = path.extname(filePath).toLowerCase()

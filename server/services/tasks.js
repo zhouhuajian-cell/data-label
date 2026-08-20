@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ApiError } from '../lib/http.js'
 import { auditLogs, submissions, suppliers, taskLogs, tasks, taskItems, ERROR_TYPES } from '../repositories/data.js'
-import { createNotification } from './notifications.js'
+import { createNotification, notifyByRole } from './notifications.js'
 import { nowText } from '../lib/time.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -55,11 +55,13 @@ export function pushAcceptanceReport(taskId, actorName) {
 }
 
 const buyerRole = 1; const qaRole = 2; const supplierRole = 3
+// 供应商侧角色（3=团队长 4=标注员）都受数据隔离约束（与 workbench.js ensureSupplierScope 一致）
+const supplierSideRoles = [3, 4]
 
 function ensureUploadsDir() { if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true }) }
 function requireBuyer(user) { if (![1, 2, 7].includes(user.roleType)) throw new ApiError(403, 'FORBIDDEN', '仅甲方/质检/清洗可操作') }
 function requireSupplier(user) { if (user.roleType !== supplierRole) throw new ApiError(403, 'FORBIDDEN', '仅供应商可操作') }
-function canAccessTask(user, task) { return user.roleType !== supplierRole || task.supplierId === user.supplierId }
+function canAccessTask(user, task) { return !supplierSideRoles.includes(user.roleType) || task.supplierId === user.supplierId }
 function findVisibleTask(user, taskId) {
   const task = tasks.find(t => t.id === taskId)
   if (!task || !canAccessTask(user, task)) throw new ApiError(404, 'TASK_NOT_FOUND', '任务不存在')
@@ -114,7 +116,10 @@ export function getTaskDetail(user, taskId) {
   if (task.state === 'ACCEPTED' && !logs.some(l => l.content.includes('验收'))) {
     logs.push({ taskId, time: task.acceptTime || nowText(), content: '甲方验收通过，任务完成', type: 'success' })
   }
-  return { task, stateLog: logs, versions: submissions.filter(s => s.taskId === taskId) }
+  const items = taskItems
+    .filter(i => i.taskId === taskId)
+    .map(i => ({ id: i.id, itemName: i.itemName, dataType: i.dataType, status: i.status, uploadPath: i.uploadPath || '', annotator: i.annotator || '', failReason: i.failReason || '', rejectImages: i.rejectImages || [], rejectNote: i.rejectNote || '', reworkCount: i.reworkCount || 0, lastResubmitAt: i.lastResubmitAt || '' }))
+  return { task, stateLog: logs, versions: submissions.filter(s => s.taskId === taskId), items }
 }
 
 export function createTask(user, body) {
@@ -179,14 +184,18 @@ export function dispatchTask(user, taskId, body) {
   requireBuyer(user)
   const task = findVisibleTask(user, taskId)
   if (!['UNASSIGNED', 'REJECTED'].includes(task.state)) throw new ApiError(409, 'TASK_STATE_CONFLICT', '当前状态不可派发')
+  // 必须先导入明细才能派发
+  if (!taskItems.some(i => i.taskId === taskId)) throw new ApiError(422, 'VALIDATION_ERROR', '请先导入任务明细，再派发给供应商')
   const supplier = suppliers.find(s => s.id === Number(body.supplierId))
   if (!supplier) throw new ApiError(422, 'VALIDATION_ERROR', '请选择有效供应商')
   task.supplierId = supplier.id; task.supplierName = supplier.name
+  // 立即开工 = 直接进入供应商标注中；否则等待供应商接单（接单后进入标注中）
   task.state = body.immediateStart ? 'ANNOTATING' : 'UNASSIGNED'
   if (body.qaSamplingRate !== undefined) task.qaSamplingRate = Number(body.qaSamplingRate)
-  addLog(task.id, '派发给' + supplier.name + (body.immediateStart ? '，供应商开始作业' : '，等待接单'))
+  addLog(task.id, '派发给' + supplier.name + (body.immediateStart ? '，供应商开始标注作业' : '，等待接单'))
   auditLogs.push({ action: 'task.dispatch', actorId: user.id, taskId, supplierId: supplier.id, at: nowText() })
-  createNotification(null, 'task', '新任务派发', `甲方已将「${task.taskName}」派发至${supplier.name}，请及时接单作业`, 'task', taskId)
+  // 新任务派发 → 通知该供应商的人（团队长+标注员）去接单
+  notifyByRole(supplier.id, [3, 4], 'task', '新任务派发', `甲方已将「${task.taskName}」派发至${supplier.name}，请及时接单作业`, 'task', taskId)
   return task
 }
 
@@ -197,6 +206,8 @@ export function acceptTask(user, taskId) {
   task.state = 'ANNOTATING'
   addLog(task.id, user.userName + ' 接单，开始标注作业')
   auditLogs.push({ action: 'task.accept', actorId: user.id, taskId, at: nowText() })
+  // 供应商接单 → 通知甲方（PM/QA）已接单，进入标注中
+  notifyByRole(null, [1, 2], 'task', '供应商开始标注', `${task.supplierName} 已接单「${task.taskName}」，进入供应商标注中`, 'task', taskId)
   return task
 }
 
@@ -204,11 +215,11 @@ export function completeWork(user, taskId) {
   requireSupplier(user)
   const task = findVisibleTask(user, taskId)
   if (task.state !== 'ANNOTATING') throw new ApiError(409, 'TASK_STATE_CONFLICT', '当前状态不可完成作业')
-  const items = taskItems.filter(i => i.taskId === taskId)
-  const unannotated = items.filter(i => !['annotated','vendor_passed','accepted','rework'].includes(i.status)).length
-  if (unannotated > 0) throw new ApiError(409, 'TASK_STATE_CONFLICT', `还有 ${unannotated} 条明细未完成标注，无法提交`)
   task.state = 'VENDOR_QA'
-  addLog(task.id, user.userName + ' 完成作业，明细已全部标注，待供应商内部质检')
+  addLog(task.id, user.userName + ' 完成作业，待供应商内部质检')
+  auditLogs.push({ action: 'task.completeWork', actorId: user.id, taskId, at: nowText() })
+  // 供应商完成作业 → 通知甲方（PM/QA）可开始质检
+  notifyByRole(null, [1, 2], 'task', '供应商完成作业', `${task.supplierName} 已完成「${task.taskName}」标注，进入供应商内部质检`, 'task', taskId)
   return task
 }
 
@@ -220,10 +231,21 @@ export function submitTask(user, taskId, body) {
   const submitDesc = String(body.submitDesc || '').trim()
   if (!body.fileName || !body.fileData) throw new ApiError(422, 'VALIDATION_ERROR', '请上传标注成果文件（数据包不能为空）')
 
-  // 校验：所有明细必须已经过供应商质检（vendor_passed 或 accepted）
-  const items = taskItems.filter(i => i.taskId === taskId)
-  const unqualified = items.filter(i => !['vendor_passed','accepted'].includes(i.status)).length
-  if (unqualified > 0) throw new ApiError(409, 'TASK_STATE_CONFLICT', `还有 ${unqualified} 条明细未通过供应商质检，请先质检后再提交`)
+  // 明细级提交：勾选的明细置为「已提交」；未勾选默认全选
+  const taskItems2 = taskItems.filter(i => i.taskId === taskId)
+  let submittedItemIds = Array.isArray(body.itemIds) ? body.itemIds.map(Number) : []
+  if (!submittedItemIds.length) submittedItemIds = taskItems2.map(i => i.id)
+  const validItemIds = new Set(taskItems2.map(i => i.id))
+  for (const id of submittedItemIds) {
+    if (!validItemIds.has(id)) throw new ApiError(422, 'VALIDATION_ERROR', '提交的明细不属于该任务')
+  }
+  taskItems2.forEach(item => {
+    if (submittedItemIds.includes(item.id)) {
+      item.status = 'submitted'
+      if (!Array.isArray(item.history)) item.history = []
+      item.history.push({ time: nowText(), actor: user.userName, action: 'submit' })
+    }
+  })
 
   // 保存文件数据
   let storedName = null
@@ -248,6 +270,7 @@ export function submitTask(user, taskId, body) {
     deliveryDoc: body.deliveryDoc || '',
     qaReportText: body.qaReportText || '',
     rejectReason: null, reviewComment: null,
+    submittedItemIds,
     itemsSnapshot
   }
   submissions.push(submission)
@@ -255,7 +278,8 @@ export function submitTask(user, taskId, body) {
   task.submitTime = nowText()
   addLog(task.id, user.userName + ' 提交 ' + version + ' 版成果，等待甲方验收', 'warning')
   auditLogs.push({ action: 'task.submit', actorId: user.id, taskId, at: nowText() })
-  createNotification(null, 'task', '供应商提交交付', `${task.supplierName} 已提交「${task.taskName}」${version} 版（${body.fileName}），请甲方质检验收`, 'task', task.id)
+  // 供应商提交交付 → 通知甲方（PM/QA）验收
+  notifyByRole(null, [1, 2], 'task', '待甲方质检提醒', `${task.supplierName} 已提交「${task.taskName}」${version} 版成果，任务状态为待甲方质检，请安排验收`, 'task', task.id)
   return submission
 }
 
@@ -286,7 +310,13 @@ export function reviewTask(user, taskId, body) {
     // 验收通过 → 将任务下所有待验收明细同步为已验收
     const taskItems2 = taskItems.filter(i => i.taskId === taskId)
     taskItems2.forEach(item => {
-      if (['vendor_passed', 'accepted'].includes(item.status)) {
+      if (item.status === 'submitted') {
+        item.status = 'accepted'
+        item.clientReviewed = true
+        item.firstPass = (item.reworkCount || 0) === 0
+        if (!Array.isArray(item.history)) item.history = []
+        item.history.push({ time: nowText(), actor: user.userName, action: 'client_pass' })
+      } else if (['vendor_passed', 'accepted'].includes(item.status)) {
         if (item.status === 'vendor_passed') {
           item.status = 'accepted'
           item.clientReviewed = true
@@ -302,11 +332,40 @@ export function reviewTask(user, taskId, body) {
     pushAcceptanceReport(taskId, user.userName)
   } else {
     task.rejectCount = (task.rejectCount || 0) + 1; task.currentRework = (task.currentRework || 0) + 1
+    // 驳回 → 已提交明细标记返工
+    taskItems.filter(i => i.taskId === taskId && i.status === 'submitted').forEach(item => {
+      item.status = 'rework'
+      item.clientReviewed = true
+      if (!Array.isArray(item.history)) item.history = []
+      item.history.push({ time: nowText(), actor: user.userName, action: 'client_reject' })
+    })
   }
   addLog(task.id, user.userName + (pass ? ' 验收通过，得分' + score : ' 驳回整改：' + rejectReason + '，得分' + score), pass ? 'success' : 'danger')
   auditLogs.push({ action: pass ? 'task.pass' : 'task.reject', actorId: user.id, taskId, score, at: nowText() })
   if (!pass) {
-    createNotification(null, 'qa', '驳回整改', `「${task.taskName}」被甲方驳回（${rejectReason || comment}），得分 ${score} 分，请整改后重新提交`, 'task', task.id)
+    // 驳回整改 → 通知该供应商的人整改
+    notifyByRole(task.supplierId, [3, 4], 'qa', '驳回整改', `「${task.taskName}」被甲方驳回（${rejectReason || comment}），得分 ${score} 分，请整改后重新提交`, 'task', task.id)
+  }
+  return task
+}
+
+const STATE_CN = { UNASSIGNED: '待标注', ANNOTATING: '标注中', VENDOR_QA: '供应商质检', CLIENT_QA: '已提交待甲方验收', ACCEPTED: '已验收', REJECTED: '驳回整改', ARCHIVED: '已归档' }
+// 供应商可手动修改的任务状态（排除已验收/已归档，防绕过甲方验收）
+const SUPPLIER_EDITABLE_STATES = ['UNASSIGNED', 'ANNOTATING', 'VENDOR_QA', 'CLIENT_QA', 'REJECTED']
+export function updateTaskState(user, taskId, body) {
+  const task = findVisibleTask(user, taskId)
+  const state = String(body.state || '').trim()
+  if (!SUPPLIER_EDITABLE_STATES.includes(state)) {
+    throw new ApiError(422, 'VALIDATION_ERROR', '该状态不允许手动修改')
+  }
+  const from = task.state
+  task.state = state
+  task.updatedAt = nowText()
+  addLog(task.id, user.userName + ' 手动更新任务状态：' + (STATE_CN[from] || from) + ' → ' + (STATE_CN[state] || state))
+  auditLogs.push({ action: 'task.updateState', actorId: user.id, taskId, from, to: state, at: nowText() })
+  // 任务状态变为待甲方质检(CLIENT_QA) → 飞书提醒甲方
+  if (state === 'CLIENT_QA') {
+    notifyByRole(null, [1, 2], 'task', '待甲方质检提醒', `${user.userName} 将任务「${task.taskName}」状态改为待甲方质检，请安排验收`, 'task', taskId)
   }
   return task
 }

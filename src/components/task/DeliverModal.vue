@@ -24,6 +24,18 @@
       <Document /> 已选择：{{ fileInfo.name }}
     </div>
 
+    <div v-if="items.length" class="items-check">
+      <div class="items-check-head">
+        <span>本次提交覆盖明细（{{ selectedIds.length }}/{{ items.length }}）</span>
+        <el-checkbox :model-value="selectedIds.length === items.length" @change="toggleAll">全选</el-checkbox>
+      </div>
+      <el-checkbox-group v-model="selectedIds" class="items-check-list">
+        <el-checkbox v-for="it in items" :key="it.id" :value="it.id" class="items-check-item">
+          {{ it.itemName }}<span class="item-path">{{ it.uploadPath || '无路径' }}</span>
+        </el-checkbox>
+      </el-checkbox-group>
+    </div>
+
     <el-form-item label="提交备注">
       <el-input
         v-model="submitDesc"
@@ -59,8 +71,14 @@ import { submitTaskApi } from '@/api/tasks'
 
 const props = defineProps({
   visible: Boolean,
-  taskInfo: { type: Object, default: () => ({}) }
+  taskInfo: { type: Object, default: () => ({}) },
+  items: { type: Array, default: () => [] }
 })
+
+const selectedIds = ref([])
+// 明细变化时默认全选
+watch(() => props.items, (list) => { selectedIds.value = list.map(i => i.id) }, { immediate: true })
+const toggleAll = (checked) => { selectedIds.value = checked ? props.items.map(i => i.id) : [] }
 const emit = defineEmits(['update:visible', 'success'])
 
 const loading = ref(false)
@@ -110,7 +128,8 @@ const submitDeliver = async () => {
       fileName: file.name,
       fileSize: file.size,
       fileData,
-      submitDesc: submitDesc.value
+      submitDesc: submitDesc.value,
+      itemIds: selectedIds.value
     })
     ElMessage.success('成果提交成功，等待质检')
     emit('success')
@@ -139,4 +158,9 @@ const submitDeliver = async () => {
   align-items: center;
   gap: 8px;
 }
+.items-check { margin: 12px 0; padding: 10px 12px; border: 1px solid #ebeef5; border-radius: 6px; }
+.items-check-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #606266; margin-bottom: 8px; }
+.items-check-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
+.items-check-item { margin-right: 0 !important; }
+.item-path { margin-left: 6px; font-size: 12px; color: #909399; }
 </style>

@@ -166,7 +166,7 @@
                   <el-button text size="small" type="primary" @click="$router.push('/task/detail/' + scope.row.id)">详情</el-button>
                   <el-button v-if="isAdminLike" text size="small" type="primary" @click="openUploadPackage(scope.row)">导入数据包</el-button>
                   <el-button v-if="!isAdminLike && scope.row.dataPackage" text size="small" type="primary" @click="downloadTaskPackage(scope.row)">下载数据包</el-button>
-                  <el-button v-if="isAdminLike && ['UNASSIGNED','REJECTED'].includes(scope.row.state)" text size="small" type="primary" @click="dispatchSingle(scope.row)">派发</el-button>
+                  <el-button v-if="isAdminLike && ['UNASSIGNED','REJECTED'].includes(scope.row.state)" text size="small" type="primary" @click="taskDialogsRef?.dispatchSingle(scope.row)">派发</el-button>
                   <el-button v-if="isAdminLike && scope.row.state === 'CLIENT_QA'" text size="small" type="success" @click="taskDialogsRef?.reviewSingle(scope.row)">验收</el-button>
                   <el-button v-if="['CLIENT_QA','ACCEPTED'].includes(scope.row.state)" text size="small" type="primary" @click="downloadSubmission(scope.row)">下载成果</el-button>
                   <el-button v-if="['ACCEPTED','ARCHIVED'].includes(scope.row.state)" text size="small" type="warning" @click="$router.push('/finance/bill')">结算</el-button>
@@ -175,7 +175,6 @@
                     <el-button text size="small">更多<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
-                        <el-dropdown-item command="workbench" v-if="scope.row.annotateType === '2D拉框' && ['ANNOTATING','VENDOR_QA','CLIENT_QA'].includes(scope.row.state)">进入工作台</el-dropdown-item>
                         <el-dropdown-item command="edit" v-if="scope.row.state === 'UNASSIGNED'">编辑任务</el-dropdown-item>
                         <el-dropdown-item command="dispatch" v-if="['UNASSIGNED','REJECTED'].includes(scope.row.state)">派发任务</el-dropdown-item>
                         <el-dropdown-item command="delete" v-if="scope.row.state === 'UNASSIGNED'" divided>删除任务</el-dropdown-item>
@@ -326,10 +325,10 @@ const stateChips = computed(() => {
   const map = {}
   detailTasks.value.forEach(t => { map[t.state] = (map[t.state] || 0) + 1 })
   const order = [
-    { value: 'UNASSIGNED', label: '待指派', type: 'warning' },
+    { value: 'UNASSIGNED', label: '待标注', type: 'warning' },
     { value: 'ANNOTATING', label: '标注中', type: 'primary' },
     { value: 'VENDOR_QA', label: '供应商质检', type: 'warning' },
-    { value: 'CLIENT_QA', label: '甲方质检', type: 'primary' },
+    { value: 'CLIENT_QA', label: '已提交待甲方验收', type: 'primary' },
     { value: 'ACCEPTED', label: '已验收', type: 'success' },
     { value: 'REJECTED', label: '驳回', type: 'danger' }
   ]
@@ -398,7 +397,6 @@ const handleTaskCommand = (cmd, row) => {
   if (cmd === 'edit') taskDialogsRef.value?.editTask(row)
   else if (cmd === 'dispatch') taskDialogsRef.value?.dispatchSingle(row)
   else if (cmd === 'delete') deleteTask(row)
-  else if (cmd === 'workbench') router.push('/workbench/' + row.id)
 }
 
 const onSelectionChange = (rows) => { selectedTasks.value = rows }

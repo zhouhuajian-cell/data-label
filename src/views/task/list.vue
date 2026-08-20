@@ -54,11 +54,10 @@
         <el-table-column label="操作" :width="userRole === 1 ? 320 : 240" fixed="right">
           <template #default="scope">
             <el-button text size="small" type="primary" @click="$router.push('/task/detail/' + scope.row.id)">详情</el-button>
-            <el-button v-if="[3,4].includes(userRole) && scope.row.annotateType === '2D拉框' && ['ANNOTATING','REJECTED'].includes(scope.row.state)" text size="small" type="success" @click="$router.push('/workbench/' + scope.row.id)">进入标注</el-button>
             <template v-if="userRole === 1">
               <el-button v-if="['UNASSIGNED','REJECTED'].includes(scope.row.state)" text size="small" type="primary" @click="openDispatch(scope.row)">派发</el-button>
               <el-button v-if="scope.row.state === 'CLIENT_QA'" text size="small" type="success" @click="openReview(scope.row)">验收</el-button>
-              <el-button v-if="['UNASSIGNED','ANNOTATING','REJECTED'].includes(scope.row.state)" text size="small" type="warning" @click="openEdit(scope.row)">编辑</el-button>
+              <el-button v-if="scope.row.state === 'UNASSIGNED'" text size="small" type="warning" @click="openEdit(scope.row)">编辑</el-button>
               <el-button v-if="scope.row.state === 'UNASSIGNED'" text size="small" type="danger" @click="handleDelete(scope.row)">删除</el-button>
             </template>
             <template v-if="userRole === 3">
@@ -134,23 +133,34 @@
       <template #footer><el-button @click="reviewVisible = false">取消</el-button><el-button type="primary" :loading="actionLoading" @click="submitReview">提交</el-button></template>
     </el-dialog>
 
-    <DeliverModal v-model:visible="deliverModalVisible" :task-info="currentTask" @success="loadTaskList" />
+    <DeliverModal v-model:visible="deliverModalVisible" :task-info="currentTask" :items="currentTaskItems" @success="loadTaskList" />
 
-    <!-- 批量提交成果弹窗（数据包必传） -->
-    <el-dialog v-model="batchDeliverVisible" title="批量提交成果" width="520px" @closed="resetBatchDeliver">
-      <el-alert type="info" :closable="false" style="margin-bottom:16px"><template #title>将批量提交 {{ selectedRows.length }} 个任务，需选择数据包文件（各任务共用同一数据包）</template></el-alert>
-      <el-upload drag :limit="1" :auto-upload="false" :on-change="onBatchFileChange" :on-remove="onBatchFileRemove" :file-list="batchFileList" accept=".zip,.tar.gz,.7z" style="margin-bottom:12px">
-        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-        <div class="el-upload__text">拖拽数据包或<em>点击上传</em></div>
-        <template #tip><div class="el-upload__tip">支持 zip/tar.gz/7z，数据包必传，为空不允许提交</div></template>
-      </el-upload>
-      <div v-if="batchFile" class="batch-file-row">已选择：{{ batchFile.name }}（{{ (batchFile.size / 1024).toFixed(1) }} KB）</div>
-      <el-form-item label="提交备注">
+    <!-- 批量提交成果弹窗：每个任务独立数据包 -->
+    <el-dialog v-model="batchDeliverVisible" title="批量提交成果" width="640px" @closed="resetBatchDeliver">
+      <el-alert type="info" :closable="false" style="margin-bottom:16px">
+        <template #title>共 {{ selectedRows.length }} 个任务待提交，请为每个任务选择各自的数据包文件（必传）</template>
+      </el-alert>
+      <div class="batch-deliver-list">
+        <div v-for="row in selectedRows" :key="row.id" class="batch-deliver-item">
+          <div class="batch-deliver-info">
+            <span class="task-name">{{ row.taskName }}</span>
+            <el-tag size="small" :type="getStateType(row.state)">{{ getStateText(row.state) }}</el-tag>
+          </div>
+          <el-upload :limit="1" :auto-upload="false" :on-change="(f) => onBatchFileChange(row, f)" :on-remove="() => onBatchFileRemove(row)" :file-list="batchFileList[row.id] || []" accept=".zip,.tar.gz,.7z" class="batch-upload">
+            <el-button size="small">{{ batchFiles[row.id] ? '重新选择' : '选择数据包' }}</el-button>
+            <template #tip>
+              <div v-if="batchFiles[row.id]" class="batch-file-name">{{ batchFiles[row.id].name }}（{{ (batchFiles[row.id].size / 1024).toFixed(1) }} KB）</div>
+              <div v-else class="batch-file-name empty">支持 zip/tar.gz/7z，必传</div>
+            </template>
+          </el-upload>
+        </div>
+      </div>
+      <el-form-item label="提交备注" style="margin-top:12px">
         <el-input v-model="batchDesc" type="textarea" :rows="2" placeholder="选填，任意字数" />
       </el-form-item>
       <template #footer>
         <el-button @click="batchDeliverVisible = false">取消</el-button>
-        <el-button type="primary" :loading="actionLoading" :disabled="!batchFile" @click="confirmBatchSubmit">确认提交</el-button>
+        <el-button type="primary" :loading="actionLoading" :disabled="!allBatchFilesReady" @click="confirmBatchSubmit">确认提交</el-button>
       </template>
     </el-dialog>
   </div>
@@ -179,8 +189,8 @@ const tableRef = ref(null)
 
 const annotateTypes = ['2D拉框', '3D点云标注', '语义分割', '车道线标注', 'Vslam', '数据闭环', 'CNN', 'AEB', 'OBJ']
 
-const currentTask = ref({}); const deliverModalVisible = ref(false)
-const batchDeliverVisible = ref(false); const batchFile = ref(null); const batchDesc = ref(''); const batchFileList = ref([])
+const currentTask = ref({}); const currentTaskItems = ref([]); const deliverModalVisible = ref(false)
+const batchDeliverVisible = ref(false); const batchFiles = reactive({}); const batchFileList = reactive({}); const batchDesc = ref('')
 const createVisible = ref(false); const editVisible = ref(false); const dispatchVisible = ref(false); const reviewVisible = ref(false)
 
 const createFormRef = ref(null); const editFormRef = ref(null); const dispatchFormRef = ref(null); const reviewFormRef = ref(null)
@@ -298,23 +308,34 @@ const submitDispatch = async () => {
   try { await dispatchTaskApi(currentTask.value.id, dispatchForm); ElMessage.success('已派发'); dispatchVisible.value = false; loadTaskList() } finally { actionLoading.value = false }
 }
 
-const acceptTask = async (row) => { acceptingId.value = row.id; try { await acceptTaskApi(row.id); ElMessage.success('已接单，开始作业'); loadTaskList() } finally { acceptingId.value = null } }
-const completeWork = async (row) => { await completeWorkApi(row.id); ElMessage.success('作业完成，可提交验收'); loadTaskList() }
+const acceptTask = async (row) => { acceptingId.value = row.id; try { await acceptTaskApi(row.id); ElMessage.success('已接单，进入标注作业'); loadTaskList() } finally { acceptingId.value = null } }
+const completeWork = async (row) => { await completeWorkApi(row.id); ElMessage.success('作业完成，可提交质检'); loadTaskList() }
 
-const openDeliver = (row) => { currentTask.value = row; deliverModalVisible.value = true }
+const openDeliver = async (row) => {
+  currentTask.value = row; currentTaskItems.value = []
+  try { const { data } = await getTaskDetailApi(row.id); currentTaskItems.value = data.items || [] } catch {}
+  deliverModalVisible.value = true
+}
 
-// 批量提交：必须先选择数据包文件
-const resetBatchDeliver = () => { batchFile.value = null; batchDesc.value = ''; batchFileList.value = [] }
+// 批量提交：每个任务独立选择数据包文件
+const allBatchFilesReady = computed(() =>
+  selectedRows.value.length > 0 && selectedRows.value.every(r => !!batchFiles[r.id])
+)
+const resetBatchDeliver = () => {
+  for (const k of Object.keys(batchFiles)) delete batchFiles[k]
+  for (const k of Object.keys(batchFileList)) delete batchFileList[k]
+  batchDesc.value = ''
+}
 const openBatchDeliver = () => { resetBatchDeliver(); batchDeliverVisible.value = true }
-const onBatchFileChange = (file) => { batchFile.value = file.raw || file; batchFileList.value = [file] }
-const onBatchFileRemove = () => { batchFile.value = null; batchFileList.value = [] }
+const onBatchFileChange = (row, file) => { batchFiles[row.id] = file.raw || file; batchFileList[row.id] = [file] }
+const onBatchFileRemove = (row) => { delete batchFiles[row.id]; delete batchFileList[row.id] }
 const confirmBatchSubmit = async () => {
-  const file = batchFile.value
-  if (!file) { ElMessage.warning('请先选择数据包文件'); return }
+  if (!allBatchFilesReady.value) { ElMessage.warning('请为每个任务选择数据包文件'); return }
   actionLoading.value = true
   try {
-    const b64 = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file) })
     for (const row of selectedRows.value) {
+      const file = batchFiles[row.id]
+      const b64 = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(file) })
       await submitTaskApi(row.id, { fileName: file.name, fileSize: file.size, fileData: b64, submitDesc: batchDesc.value })
     }
     ElMessage.success(`批量提交 ${selectedRows.value.length} 条完成`)
@@ -347,5 +368,12 @@ onMounted(() => {
 .filter-card { margin-bottom: 16px; }
 .table-header { display: flex; justify-content: space-between; align-items: center; }
 .pagination-wrap { margin-top: 16px; display: flex; align-items: center; }
-.batch-file-row { padding: 8px 12px; background: #f0f9eb; border-radius: 4px; margin-bottom: 16px; font-size: 13px; color: #67c23a; }
+.batch-deliver-list { max-height: 320px; overflow-y: auto; border: 1px solid #ebeef5; border-radius: 4px; padding: 8px 12px; }
+.batch-deliver-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+.batch-deliver-item:last-child { border-bottom: none; }
+.batch-deliver-info { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.batch-deliver-info .task-name { font-size: 13px; color: #303133; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-upload { width: 200px; }
+.batch-file-name { font-size: 12px; color: #67c23a; margin-top: 4px; word-break: break-all; }
+.batch-file-name.empty { color: #909399; }
 </style>
