@@ -10,7 +10,7 @@ const dbDir = path.resolve(__dirname, '../data')
 const dbFile = path.join(dbDir, 'db.json')
 
 // 需要持久化的集合（保持数组引用不变，仅替换元素，避免影响既有 import）
-const KEYS = ['users', 'suppliers', 'tasks', 'taskLogs', 'submissions', 'auditLogs', 'taskItems', 'projects', 'workSessions', 'settlements', 'notifications', 'scenarioDimensions', 'governedDatasets', 'governedItems', 'feishuConfig', 'gndUsers', 'gndSuppliers', 'gndTasks', 'gndSubmissions', 'gndOptimizations', 'gndAcceptances', 'gndWarehouseRecords', 'gndPerceptions', 'gndStatusHistory', 'gndFieldHistory', 'gndOptions']
+const KEYS = ['users', 'suppliers', 'tasks', 'taskLogs', 'submissions', 'auditLogs', 'taskItems', 'projects', 'workSessions', 'settlements', 'notifications', 'scenarioDimensions', 'governedDatasets', 'governedItems', 'feishuConfig']
 const MYSQL_TABLE = 'app_state'
 
 let pool = null

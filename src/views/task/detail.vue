@@ -69,6 +69,17 @@
       <el-table :data="items" border size="small" max-height="320">
         <el-table-column label="明细名称" prop="itemName" min-width="180" show-overflow-tooltip />
         <el-table-column label="数据上传路径" min-width="220" show-overflow-tooltip><template #default="s">{{ s.row.uploadPath || '-' }}</template></el-table-column>
+        <el-table-column label="场景标签" width="160">
+          <template #default="s">
+            <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+              <template v-if="(s.row.tags || []).length">
+                <el-tag v-for="t in s.row.tags" :key="t" size="small">{{ t }}</el-tag>
+              </template>
+              <span v-else style="color:#c0c4cc">-</span>
+              <el-button size="small" text type="primary" @click="openTags(s.row)">编辑</el-button>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="150"><template #default="s"><el-select :model-value="s.row.status" size="small" @change="(v) => onChangeItemStatus(s.row, v)"><el-option v-for="(label, code) in editableItemStates" :key="code" :label="label" :value="code" /></el-select></template></el-table-column>
         <el-table-column label="问题截图" width="150">
           <template #default="s">
@@ -83,6 +94,26 @@
         <el-table-column label="驳回备注" min-width="160" show-overflow-tooltip><template #default="s"><span :style="s.row.rejectNote ? {color:'#f56c6c'} : {color:'#c0c4cc'}">{{ s.row.rejectNote || '-' }}</span></template></el-table-column>
         <el-table-column label="返修次数" width="90"><template #default="s"><el-tag v-if="s.row.reworkCount" size="small" type="warning">第{{ s.row.reworkCount }}次返修</el-tag><span v-else style="color:#c0c4cc">-</span></template></el-table-column>
       </el-table>
+
+      <!-- 场景标签编辑弹窗 -->
+      <el-dialog v-model="tagsVisible" title="编辑场景标签" width="420px">
+        <div style="font-size:13px;color:#606266;margin-bottom:10px;word-break:break-all">{{ editingItem?.itemName }}</div>
+        <el-select
+          v-model="editingTags"
+          multiple
+          filterable
+          allow-create
+          default-first-option
+          placeholder="输入或选择场景标签，回车添加"
+          style="width:100%"
+        >
+          <el-option v-for="opt in tagOptions" :key="opt" :label="opt" :value="opt" />
+        </el-select>
+        <template #footer>
+          <el-button @click="tagsVisible = false">取消</el-button>
+          <el-button type="primary" :loading="savingTags" @click="saveTags">保存</el-button>
+        </template>
+      </el-dialog>
     </el-card>
 
     <el-card class="norm-card" shadow="hover">
@@ -165,6 +196,22 @@ const editableItemStates = {
 const imgUrl = (storedName) => '/api/files/download/' + storedName + '?token=' + (localStorage.getItem('token') || '')
 const onChangeItemStatus = async (row, status) => {
   try { await updateTaskItemApi(taskInfo.value.id, row.id, { status }); row.status = status; ElMessage.success('明细状态已更新') } catch { ElMessage.error('状态更新失败') }
+}
+// 场景标签编辑（泰兴基地与供应商均可维护）
+const tagsVisible = ref(false)
+const editingItem = ref(null)
+const editingTags = ref([])
+const savingTags = ref(false)
+const tagOptions = computed(() => [...new Set(items.value.flatMap(i => i.tags || []))])
+const openTags = (row) => { editingItem.value = row; editingTags.value = [...(row.tags || [])]; tagsVisible.value = true }
+const saveTags = async () => {
+  savingTags.value = true
+  try {
+    await updateTaskItemApi(taskInfo.value.id, editingItem.value.id, { status: editingItem.value.status, tags: [...editingTags.value] })
+    editingItem.value.tags = [...editingTags.value]
+    ElMessage.success('场景标签已保存')
+    tagsVisible.value = false
+  } catch { ElMessage.error('保存失败') } finally { savingTags.value = false }
 }
 const supplierList = ref([])
 

@@ -40,7 +40,7 @@ export const ROLE_TYPE = {
 }
 
 export const ROLE_LABELS = {
-  1: '泰兴管理员',
+  1: '泰兴基地',
   2: '甲方质检员',
   3: '供应商团队长（含质检）',
   4: '标注员',
@@ -84,6 +84,7 @@ export const GND_ROLE_TYPE = {
 }
 
 export const GND_ROLE_LABELS = {
+  1: '泰兴基地',
   8: '泰兴管理员',
   9: '优化员',
   10: '验收员',

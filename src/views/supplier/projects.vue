@@ -32,7 +32,11 @@
               <span class="pc-name" :title="proj.name">{{ proj.name }}</span>
               <el-tag :type="statusTag(proj.status)" size="small">{{ statusMap[proj.status] }}</el-tag>
             </div>
-            <div class="pc-client">{{ proj.annotateType }}</div>
+            <div class="pc-client">
+              <el-tag v-if="proj.bizType === 'vslam'" size="small" effect="plain" type="warning" style="margin-right:6px">vslam</el-tag>
+              <el-tag v-else size="small" effect="plain" type="info" style="margin-right:6px">数据闭环</el-tag>
+              {{ proj.annotateType }}
+            </div>
             <div class="pc-progress">
               <el-progress :percentage="projectProgress(proj.id)" :stroke-width="8"
                 :color="progressColor(projectProgress(proj.id))" />
@@ -70,6 +74,7 @@
                 <el-tag :type="statusTag(selectedProject.status)">{{ statusMap[selectedProject.status] }}</el-tag>
               </div>
               <el-descriptions :column="3" class="ph-desc" size="small">
+                <el-descriptions-item label="业务类型">{{ selectedProject.bizType || '数据闭环' }}</el-descriptions-item>
                 <el-descriptions-item label="标注类型">{{ selectedProject.annotateType }}</el-descriptions-item>
                 <el-descriptions-item label="样本量">{{ selectedProject.sampleCount?.toLocaleString() || 0 }}</el-descriptions-item>
                 <el-descriptions-item label="截止">{{ selectedProject.deadline }}</el-descriptions-item>
@@ -131,6 +136,7 @@
                     :task-row="scope.row"
                     @update-status="updateItemStatus"
                     @save-fail-reason="saveFailReason"
+                    @save-tags="saveItemTags"
                     @delete-item="deleteItem"
                     @batch-update="batchUpdateItems"
                     @import-items="(r) => importItemsRef?.open(r)"
@@ -530,6 +536,10 @@ const updateItemStatus = async (taskId, item, newStatus) => {
 }
 const saveFailReason = async (taskId, item) => {
   try { await updateTaskItemApi(taskId, item.id, { status: item.status, failReason: item.failReason }); ElMessage.success('备注已保存') } catch { ElMessage.error('保存失败') }
+}
+const saveItemTags = async (taskId, item, tags) => {
+  try { await updateTaskItemApi(taskId, item.id, { status: item.status, tags }); ElMessage.success('场景标签已保存') }
+  catch (e) { ElMessage.error('保存失败'); throw e }
 }
 const batchUpdateItems = async (taskRow) => {
   const items = taskItems[taskRow.id] || []

@@ -8,15 +8,10 @@ import { taskRouter } from './task.js'
 import { workbenchRouter } from './workbench.js'
 import { governanceRouter } from './governance.js'
 import { adminRouter } from './admin.js'
-import { gndRouter } from './gnd.js'
 
 export function createApiDispatcher(requireAuth) {
   return async function dispatch(req, res, url, pathname) {
     if (await authRouter({ req, res, url, pathname })) return true
-    if (pathname.startsWith('/api/gnd')) {
-      if (await gndRouter({ req, res, url, pathname })) return true
-      throw new ApiError(404, 'NOT_FOUND', '接口不存在')
-    }
     const user = requireAuth(req)
     const ctx = { req, res, url, pathname, user }
     if (await projectRouter(ctx)) return true

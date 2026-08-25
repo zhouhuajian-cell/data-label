@@ -34,4 +34,8 @@ html, body, #app {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
+html, body {
+  background: var(--page-bg);
+  color: var(--text-1);
+}
 </style>

@@ -29,27 +29,6 @@ const routes = [
     ]
   },
   {
-    path: '/gnd/login',
-    redirect: '/login'
-  },
-  {
-    path: '/gnd/pending',
-    name: 'GndPending',
-    component: () => import('@/views/gnd/Pending.vue'),
-    meta: { title: '等待审批' }
-  },
-  {
-    path: '/gnd',
-    component: () => import('@/components/layout/MainLayout.vue'),
-    children: [
-      { path: '', redirect: '/gnd/tasks' },
-      { path: 'tasks', name: 'GndTasks', component: () => import('@/views/gnd/Tasks.vue'), meta: { title: 'GND 任务', roles: [1, 8, 9, 10, 11, 12] } },
-      { path: 'task/:id', name: 'GndTaskDetail', component: () => import('@/views/gnd/TaskDetail.vue'), meta: { title: 'GND 任务详情', roles: [1, 8, 9, 10, 11, 12] } },
-      { path: 'users', name: 'GndUsers', component: () => import('@/views/gnd/Users.vue'), meta: { title: 'GND 用户审批', roles: [1, 8] } },
-      { path: 'dashboard', name: 'GndDashboard', component: () => import('@/views/gnd/Dashboard.vue'), meta: { title: 'GND 看板', roles: [1, 8] } }
-    ]
-  },
-  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('@/views/NotFound.vue'),
@@ -74,11 +53,8 @@ router.beforeEach((to, from, next) => {
   if (!userStore.token) {
     return next('/login')
   }
-  if (userStore.isGndPending && to.path !== '/gnd/pending') {
-    return next('/gnd/pending')
-  }
   if (to.meta.roles && !to.meta.roles.includes(userStore.userInfo.roleType)) {
-    return next(userStore.isGnd ? '/gnd/tasks' : '/dashboard')
+    return next('/dashboard')
   }
   next()
 })

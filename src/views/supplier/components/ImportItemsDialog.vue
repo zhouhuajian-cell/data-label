@@ -5,7 +5,12 @@
     </div>
     <el-tabs>
       <el-tab-pane label="上传文件" name="file">
-        <div class="import-header"><span style="color:#909399;font-size:13px">支持CSV/TXT文件</span><el-button size="small" text type="primary" @click="downloadItemsTemplate">下载模板</el-button></div>
+        <div class="import-header"><span style="color:#909399;font-size:13px">支持CSV/TXT文件</span>
+          <span style="display:flex;gap:8px">
+            <el-button size="small" text type="primary" @click="downloadItemsTemplate">下载通用模板</el-button>
+            <el-button size="small" text type="warning" @click="downloadVslamTemplate">下载 vslam 模板</el-button>
+          </span>
+        </div>
         <el-upload drag :limit="1" :auto-upload="false" :on-change="handleImportItemsFile" :file-list="fileList" accept=".csv,.txt,.xlsx,.xls">
           <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
           <div class="el-upload__text">拖拽CSV文件或<em>点击上传</em></div>
@@ -94,6 +99,16 @@ const downloadItemsTemplate = () => {
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a'); a.href = url; a.download = '明细导入模板.csv'; a.click()
+  URL.revokeObjectURL(url)
+}
+
+// vslam 模板：测区名称/城市/车型/版本号/数据类型/源数据路径/任务索引路径/道路场景
+const downloadVslamTemplate = () => {
+  const BOM = '\uFEFF'
+  const content = BOM + '测区名称,城市,车型,版本号,数据类型,源数据路径,任务索引路径,道路场景\nHA-001,杭州,HS5_001,,建图A,/data/raw/HA-001,/data/index/HA-001,高速\nHA-002,上海,HS5_001,,建图B,/data/raw/HA-002,/data/index/HA-002,城区'
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = 'vslam明细导入模板.csv'; a.click()
   URL.revokeObjectURL(url)
 }
 </script>

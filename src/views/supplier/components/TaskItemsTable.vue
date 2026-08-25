@@ -15,6 +15,17 @@
       <el-table-column label="车型" width="80"><template #default="is">{{ is.row.metadata?.model || '-' }}</template></el-table-column>
       <el-table-column label="数据类型" prop="dataType" width="80" />
       <el-table-column label="标注人" prop="annotator" width="70" />
+      <el-table-column label="场景标签" width="150">
+        <template #default="is">
+          <div class="tag-cell">
+            <template v-if="is.row.tags && is.row.tags.length">
+              <el-tag v-for="t in is.row.tags" :key="t" size="small" class="tag-item">{{ t }}</el-tag>
+            </template>
+            <span v-else style="color:#c0c4cc">-</span>
+            <el-button size="small" text type="primary" @click="openTags(is.row)">编辑</el-button>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="标注状态" width="110">
         <template #default="is">
           <el-select :model-value="is.row.status" size="small" @change="(v) => emit('update-status', taskRow.id, is.row, v)">
@@ -47,10 +58,31 @@
       </el-table-column>
     </el-table>
     <el-empty v-if="!items.length" description="暂无明细" :image-size="40" />
+
+    <!-- 场景标签编辑弹窗 -->
+    <el-dialog v-model="tagsVisible" title="编辑场景标签" width="420px">
+      <div v-if="editingItem" class="tag-edit-item">{{ editingItem.itemName }}</div>
+      <el-select
+        v-model="editingTags"
+        multiple
+        filterable
+        allow-create
+        default-first-option
+        placeholder="输入或选择场景标签，回车添加"
+        style="width:100%"
+      >
+        <el-option v-for="opt in tagOptions" :key="opt" :label="opt" :value="opt" />
+      </el-select>
+      <template #footer>
+        <el-button @click="tagsVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingTags" @click="saveTags">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { Upload } from '@element-plus/icons-vue'
 import { ITEM_STATUS_MAP } from '@/utils/constants'
 
@@ -59,13 +91,40 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   taskRow: { type: Object, default: null }
 })
-const emit = defineEmits(['update-status', 'save-fail-reason', 'delete-item', 'batch-update', 'import-items'])
+const emit = defineEmits(['update-status', 'save-fail-reason', 'delete-item', 'batch-update', 'import-items', 'save-tags'])
 
 const itemStatusTagType = (code) => (['failed', 'rejected'].includes(code) ? 'danger' : code === 'annotated' ? 'success' : code === 'pending' ? 'info' : '')
 const itemsByStatus = (status) => props.items.filter(i => i.status === status).length
+
+// 场景标签编辑（泰兴基地与供应商均可维护）
+const tagsVisible = ref(false)
+const editingItem = ref(null)
+const editingTags = ref([])
+const savingTags = ref(false)
+const tagOptions = [...new Set(props.items.flatMap(i => i.tags || []))]
+
+const openTags = (item) => {
+  editingItem.value = item
+  editingTags.value = [...(item.tags || [])]
+  tagsVisible.value = true
+}
+
+const saveTags = async () => {
+  savingTags.value = true
+  try {
+    await emit('save-tags', props.taskRow.id, editingItem.value, [...editingTags.value])
+    editingItem.value.tags = [...editingTags.value]
+    tagsVisible.value = false
+  } finally {
+    savingTags.value = false
+  }
+}
 </script>
 
 <style scoped>
 .items-section { padding: 4px 0; }
 .items-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.tag-cell { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.tag-item { margin-right: 2px; }
+.tag-edit-item { font-size: 13px; color: #606266; margin-bottom: 10px; word-break: break-all; }
 </style>

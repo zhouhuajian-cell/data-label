@@ -1,7 +1,7 @@
-// 统一用户状态（旧业务域 roleType 1-7 + GND 业务域 roleType 8-12，共用 token/userInfo）
+// 统一用户状态（业务角色 roleType 1-7，共用 token/userInfo）
 import { defineStore } from 'pinia'
 
-const DEFAULT_INFO = { userName: '', roleType: 1, supplierId: null, domain: 'legacy', status: 'ACTIVE' }
+const DEFAULT_INFO = { userName: '', roleType: 1, supplierId: null }
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -11,18 +11,9 @@ export const useUserStore = defineStore('user', {
     pendingTaskCount: 0
   }),
   getters: {
-    // 旧业务域（1-7）
     isAdmin: (state) => state.userInfo.roleType === 1,
     isQA: (state) => state.userInfo.roleType === 2,
-    isSupplier: (state) => state.userInfo.roleType === 3,
-    // GND 业务域（8-12）
-    isGnd: (state) => state.userInfo.domain === 'gnd',
-    isGndPending: (state) => state.userInfo.domain === 'gnd' && state.userInfo.status === 'PENDING',
-    isTaixingAdmin: (state) => state.userInfo.roleType === 1 || state.userInfo.roleType === 8, // 泰兴管理员 = 老管理员(1) + GND 管理员(8)
-    isOptimizer: (state) => state.userInfo.roleType === 9,
-    isAcceptor: (state) => state.userInfo.roleType === 10,
-    isPerception: (state) => state.userInfo.roleType === 11,
-    isGndSupplier: (state) => state.userInfo.roleType === 12
+    isSupplier: (state) => state.userInfo.roleType === 3
   },
   actions: {
     setToken(val) {
@@ -44,8 +35,6 @@ export const useUserStore = defineStore('user', {
       this.userInfo = { ...DEFAULT_INFO }
       localStorage.removeItem('token')
       localStorage.removeItem('userInfo')
-      localStorage.removeItem('gnd_token')
-      localStorage.removeItem('gnd_userInfo')
       window.__router?.push('/login')
     }
   }

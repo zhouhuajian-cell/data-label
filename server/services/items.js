@@ -61,6 +61,11 @@ export function updateItemStatus(user, taskId, itemId, body) {
   item.status = status
   item.failReason = String(body.failReason || '').trim()
   item.annotator = String(body.annotator || item.annotator || '').trim()
+  // tag 场景标签编辑（泰兴基地与供应商均可维护）：body.tags 为数组或逗号分隔字符串
+  if (body.tags !== undefined && body.tags !== null) {
+    const raw = Array.isArray(body.tags) ? body.tags : String(body.tags).split(/[,，、]/)
+    item.tags = raw.map(t => String(t).trim()).filter(Boolean)
+  }
   if (status === 'submitted') {
     // 返修留痕：驳回(rework/rejected)后重新提交 → 记录第N次返修提交
     if (['rework', 'rejected'].includes(prevStatus)) {
@@ -290,6 +295,11 @@ export async function importTaskItemsFromFile(user, taskId, body) {
   const colName = header.findIndex(h => /名称|文件名|明细|源数据|name|log/i.test(h))
   let colUploadPath = header.findIndex(h => /上传|upload/i.test(h))
   if (colUploadPath < 0) colUploadPath = header.findIndex(h => /路径|path/i.test(h) && !/下载|download/i.test(h))
+  // vslam/数据闭环模板专用列：源数据路径 / 任务索引路径 不应被当作上传路径
+  if (colUploadPath >= 0) {
+    const h = String(header[colUploadPath] || '')
+    if (/源数据|索引|source|index/i.test(h)) colUploadPath = -1
+  }
   const colAnnotator = header.findIndex(h => /标注人|清洗人|人员|人员|annotator|cleaner/i.test(h))
   const colType = header.findIndex(h => /类型|dataType|data type/i.test(h))
   const colBatch = header.findIndex(h => /批次|batch/i.test(h))
@@ -300,9 +310,13 @@ export async function importTaskItemsFromFile(user, taskId, body) {
   const colStatus = header.findIndex(h => /标注状态|状态|status/i.test(h))
   const colFailReason = header.findIndex(h => /备注|失败原因|原因|意见|fail.?reason|remark|reason|comment/i.test(h))
   const colDownloadPath = header.findIndex(h => /下载路径|下载|download|download.?path/i.test(h))
-  const colScene = header.findIndex(h => /场景|scene/i.test(h))
+  const colScene = header.findIndex(h => /道路场景|场景|scene/i.test(h))
   const colCity = header.findIndex(h => /城市|city/i.test(h))
   const colMileage = header.findIndex(h => /里程|mileage|km/i.test(h))
+  // vslam 模板附加列：版本号 / 源数据路径 / 任务索引路径
+  const colVersion = header.findIndex(h => /版本|version/i.test(h))
+  const colSourcePath = header.findIndex(h => /源数据|源|source/i.test(h))
+  const colIndexPath = header.findIndex(h => /任务索引|索引|index/i.test(h))
 
   const maxId = Math.max(...taskItems.map(i => i.id), 0)
   let imported = 0
@@ -331,7 +345,10 @@ export async function importTaskItemsFromFile(user, taskId, body) {
         downloadPath: colDownloadPath >= 0 ? String(r[colDownloadPath] || '').trim() : '',
         scene: colScene >= 0 ? String(r[colScene] || '').trim() : '',
         city: colCity >= 0 ? String(r[colCity] || '').trim() : '',
-        mileage: colMileage >= 0 ? String(r[colMileage] || '').trim() : ''
+        mileage: colMileage >= 0 ? String(r[colMileage] || '').trim() : '',
+        version: colVersion >= 0 ? String(r[colVersion] || '').trim() : '',
+        sourceDataPath: colSourcePath >= 0 ? String(r[colSourcePath] || '').trim() : '',
+        taskIndexPath: colIndexPath >= 0 ? String(r[colIndexPath] || '').trim() : ''
       }
     })
   }

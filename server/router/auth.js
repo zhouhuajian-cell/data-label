@@ -4,6 +4,7 @@ import { ok, readJson } from '../lib/http.js'
 import { issueToken } from '../lib/auth.js'
 import { loginByPassword, loginByFeishuCode } from '../services/auth.js'
 import { createFeishuQrSession, pollFeishuSession, scanFeishuQr } from '../services/feishu.js'
+import { users } from '../repositories/data.js'
 
 function toLoginPayload(user) {
   const { token, expiresIn } = issueToken(user)
@@ -19,6 +20,11 @@ export async function authRouter({ req, res, url, pathname }) {
   const is = (method, p) => req.method === method && pathname === p
 
   if (is('GET', '/api/health')) { ok(res, { status: 'up', service: 'zhiyun-label-api', time: new Date().toISOString() }); return true }
+  // 登录页演示账号（实时读取，仅返回启用账号，不含密码）
+  if (is('GET', '/api/auth/demo-accounts')) {
+    ok(res, users.filter(u => !u.disabled && u.roleType <= 7).map(u => ({ username: u.username, userName: u.userName, roleType: u.roleType })))
+    return true
+  }
   if (is('POST', '/api/auth/login')) { ok(res, toLoginPayload(loginByPassword(await body()))); return true }
   if (is('POST', '/api/auth/feishu')) { ok(res, toLoginPayload(loginByFeishuCode(await body()))); return true }
   if (is('POST', '/api/auth/feishu/qr')) { ok(res, createFeishuQrSession()); return true }

@@ -1,0 +1,15 @@
+# Python 3.14 兼容版本（PRD 技术栈不变，仅放开版本到有 3.14 wheel 的版本）
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pydantic
+pydantic-settings
+python-jose[cryptography]
+python-multipart
+# redis 锁定 5.0.1（兼容 Redis on Windows 3.0，RESP2 默认）
+redis==5.0.1
+email-validator
+bcrypt
+passlib

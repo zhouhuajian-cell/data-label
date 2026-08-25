@@ -58,6 +58,7 @@ export function createProject(user, body) {
   const name = String(body.name || '').trim()
   const clientName = String(body.clientName || '').trim()
   const annotateType = String(body.annotateType || '').trim()
+  const bizType = String(body.bizType || '').trim()
   const sampleCount = Number(body.sampleCount)
   const deadline = String(body.deadline || '').trim()
   const description = String(body.description || '').trim()
@@ -67,10 +68,13 @@ export function createProject(user, body) {
 
   if (!name) throw new ApiError(422, 'VALIDATION_ERROR', '请输入项目名称')
   if (!annotateType) throw new ApiError(422, 'VALIDATION_ERROR', '请选择标注类型')
+  // 业务类型：数据闭环 / vslam（未选择时默认数据闭环）
+  const BIZ_TYPES = ['数据闭环', 'vslam']
+  if (bizType && !BIZ_TYPES.includes(bizType)) throw new ApiError(422, 'VALIDATION_ERROR', '业务类型必须为数据闭环或vslam')
 
   const project = {
     id: Math.max(...projects.map(p => p.id), 0) + 1,
-    name, clientName, annotateType,
+    name, clientName, annotateType, bizType: bizType || '数据闭环',
     sampleCount: Number.isFinite(sampleCount) && sampleCount > 0 ? sampleCount : 0,
     deadline: deadline || '-',
     status: 'active', description,
