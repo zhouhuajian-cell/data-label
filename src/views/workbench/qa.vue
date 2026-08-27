@@ -10,6 +10,11 @@
         <el-button v-else-if="currentTask?.qaClaimedByName" size="small" type="warning" @click="onReleaseQa">释放质检</el-button>
         <el-tag v-if="currentTask?.qaClaimedByName" size="small" type="warning">已由 {{ currentTask.qaClaimedByName }} 领取</el-tag>
       </template>
+      <div class="kbd-hints" v-if="currentItem">
+        <span><b>J</b>/<b>K</b> 切换</span>
+        <span><b>1</b> 通过</span>
+        <span><b>2</b> 驳回</span>
+      </div>
     </div>
 
     <div class="qa-body">
@@ -72,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getWorkbenchQueue, vendorQaItem, clientQaItem, claimQaTask, releaseQaTask } from '@/api/workbench.js'
 import { getTaskListApi, getTaskDetailApi, reviewTaskApi } from '@/api/tasks.js'
@@ -240,7 +245,31 @@ async function downloadTaskFile() {
   } catch { ElMessage.error('下载失败') }
 }
 
-onMounted(loadTasks)
+onMounted(() => {
+  loadTasks()
+  window.addEventListener('keydown', onKeydown)
+})
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
+// ===== 快捷键：J/K 切换明细，1 通过，2 驳回 =====
+function isTyping() {
+  const el = document.activeElement
+  return el && ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)
+}
+function switchItem(dir) {
+  if (!items.value.length) return
+  const idx = items.value.findIndex(i => i.id === currentItem.value?.id)
+  const next = items.value[(idx + dir + items.value.length) % items.value.length]
+  if (next) selectItem(next)
+}
+function onKeydown(e) {
+  if (isTyping() || rejectVisible.value) return
+  const key = e.key.toLowerCase()
+  if (key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); switchItem(1) }
+  else if (key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); switchItem(-1) }
+  else if (key === '1' && currentItem.value) { e.preventDefault(); quickPass(currentItem.value) }
+  else if (key === '2' && currentItem.value) { e.preventDefault(); openRejectDlg(currentItem.value) }
+}
 </script>
 
 <style scoped>
@@ -262,4 +291,20 @@ onMounted(loadTasks)
 .err-title { font-size: 13px; font-weight: bold; margin-bottom: 4px; } .err-group { display: flex; flex-wrap: wrap; gap: 4px; }
 .reject-body { outline: none; }
 .reject-body { outline: none; }
+.kbd-hints {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.kbd-hints b {
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--tag-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
 </style>

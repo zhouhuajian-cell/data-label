@@ -130,11 +130,9 @@ export function createTask(user, body) {
   const sampleCount = Number(body.sampleCount)
   const unitPrice = Number(body.unitPrice)
   const deadline = String(body.deadline || '').trim()
-  const uploadPath = String(body.uploadPath || '').trim()
   if (!taskName || !annotateType || !deadline || !isFinite(sampleCount) || sampleCount <= 0) {
     throw new ApiError(422, 'VALIDATION_ERROR', '请填写完整任务信息')
   }
-  if (!uploadPath) throw new ApiError(422, 'VALIDATION_ERROR', '请填写数据上传路径')
 
   let dataPackage = null
   const dp = body.dataPackage
@@ -148,7 +146,6 @@ export function createTask(user, body) {
   const task = {
     id: Math.max(0, ...tasks.map(t => Number(t.id) || 0)) + 1, taskName,
     nanoId: String(body.nanoId || '').trim(),
-    uploadPath,
     annotateType, state: 'UNASSIGNED', deadline, sampleCount, unitPrice,
     totalPrice: Number((sampleCount * unitPrice).toFixed(2)),
     supplierId: null, supplierName: '', currentRework: 0,

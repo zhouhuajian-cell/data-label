@@ -14,7 +14,7 @@
       </template>
 
       <div class="msg-list" v-loading="loading">
-        <div v-for="item in msgList" :key="item.id" class="msg-item" :class="{ unread: !item.read }" @click="readMsg(item)">
+        <div v-for="item in msgList" :key="item.id" class="msg-item" :class="{ unread: !item.read, clickable: item.refId }" @click="onMsgClick(item)">
           <div class="msg-icon">
             <el-icon :size="20" :color="iconColor(item.type)">
               <Bell v-if="item.type === 'system'" />
@@ -25,7 +25,7 @@
           <div class="msg-content">
             <div class="msg-title">{{ item.title }}</div>
             <div class="msg-desc">{{ item.content }}</div>
-            <div class="msg-time">{{ item.createdAt }}</div>
+            <div class="msg-time">{{ item.createdAt }}<span v-if="item.refId" class="msg-go">点击查看详情 →</span></div>
           </div>
           <div v-if="!item.read" class="unread-dot"></div>
         </div>
@@ -60,6 +60,7 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
+import { useRouter } from 'vue-router'
 import { Bell, Document, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { fetchNotifications, markRead, markAllRead } from '@/api/notifications.js'
@@ -67,6 +68,7 @@ import { getFeishuWebhookApi, setFeishuWebhookApi, pushFeishuApi } from '@/api/f
 import { useUserStore } from '@/store/user.js'
 
 const userStore = useUserStore()
+const router = useRouter()
 const msgType = ref('all')
 const page = ref(1)
 const pageSize = 15
@@ -124,6 +126,14 @@ async function readMsg(item) {
   }
 }
 
+// 点击消息：标记已读并跳转到关联任务详情
+function onMsgClick(item) {
+  readMsg(item)
+  if (item.refId && ['task', 'qa', 'item'].includes(item.refType)) {
+    router.push('/task/detail/' + item.refId)
+  }
+}
+
 async function markAll() {
   try { await markAllRead(); msgList.value.forEach(i => i.read = true); userStore.unReadMsg = 0; ElMessage.success('全部已读') } catch {}
 }
@@ -141,5 +151,8 @@ onMounted(() => { loadMsg(); loadWebhook() })
 .msg-title { font-size: 15px; font-weight: 500; margin-bottom: 6px; }
 .msg-desc { color: #606266; font-size: 14px; margin-bottom: 6px; line-height: 1.5; }
 .msg-time { color: #909399; font-size: 12px; }
+.msg-go { margin-left: 10px; color: var(--primary); font-weight: 500; }
+.msg-item.clickable { cursor: pointer; }
+.msg-item.clickable:hover { background: #f5f7fa; }
 .unread-dot { position: absolute; top: 20px; right: 20px; width: 8px; height: 8px; border-radius: 50%; background: #f56c6c; }
 </style>

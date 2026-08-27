@@ -7,6 +7,11 @@
           <span class="page-title">{{ $route.meta.title || 'Maxieye 数据协同平台' }}</span>
         </div>
         <div class="topbar-right">
+          <div class="search-trigger" @click="paletteRef?.open()">
+            <el-icon><Search /></el-icon>
+            <span class="st-text">搜索项目 / 任务</span>
+            <span class="st-kbd">Ctrl K</span>
+          </div>
           <slot name="header-right" />
         </div>
       </header>
@@ -14,11 +19,17 @@
         <router-view />
       </main>
     </div>
+    <CommandPalette ref="paletteRef" />
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue'
+import { Search } from '@element-plus/icons-vue'
 import SideMenu from './SideMenu.vue'
+import CommandPalette from '@/components/CommandPalette.vue'
+
+const paletteRef = ref(null)
 </script>
 
 <style scoped>
@@ -68,6 +79,40 @@ import SideMenu from './SideMenu.vue'
   height: 18px;
   border-radius: 2px;
   background: linear-gradient(180deg, var(--primary), #7c5cf0);
+}
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.18s ease;
+  min-width: 200px;
+}
+.search-trigger:hover {
+  border-color: var(--primary-border);
+  color: var(--primary);
+  background: var(--primary-bg);
+}
+.st-text { flex: 1; text-align: left; }
+.st-kbd {
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--tag-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  letter-spacing: 1px;
 }
 .page-content {
   flex: 1;

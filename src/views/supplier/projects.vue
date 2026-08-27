@@ -24,7 +24,25 @@
         </div>
 
         <div class="proj-cards" v-loading="loading">
-          <el-empty v-if="!filteredProjects.length" description="暂无项目" :image-size="60" />
+          <div v-if="!projectList.length" class="onboard">
+            <div class="ob-head">开始使用项目管理</div>
+            <div class="ob-steps">
+              <div class="ob-step">
+                <span class="ob-num">1</span>
+                <div class="ob-txt"><b>新建项目</b><em>填写项目信息并添加任务</em></div>
+              </div>
+              <div class="ob-step">
+                <span class="ob-num">2</span>
+                <div class="ob-txt"><b>导入任务明细</b><em>Excel 导入或手动添加</em></div>
+              </div>
+              <div class="ob-step">
+                <span class="ob-num">3</span>
+                <div class="ob-txt"><b>派发供应商</b><em>勾选任务，一键派发</em></div>
+              </div>
+            </div>
+            <el-button type="primary" :icon="Plus" @click="wizardRef?.open()" style="width:100%">新建第一个项目</el-button>
+          </div>
+          <el-empty v-else-if="!filteredProjects.length" description="无匹配项目" :image-size="60" />
           <div v-for="proj in filteredProjects" :key="proj.id" class="proj-card"
             :class="{ active: selectedId === proj.id, overdue: projectOverdueCount(proj.id) > 0 }"
             @click="selectProject(proj)">
@@ -159,12 +177,12 @@
               </el-table-column>
               <el-table-column label="状态" width="88">
                 <template #default="scope">
-                  <el-tag :type="getStateType(scope.row.state)" size="small">{{ getStateText(scope.row.state) }}</el-tag>
+                  <TaskStatePopover :task-id="scope.row.id" :state="scope.row.state" :task-name="scope.row.taskName" />
                 </template>
               </el-table-column>
               <el-table-column label="截止" prop="deadline" width="130">
                 <template #default="scope">
-                  <span :style="{ color: isOverdue(scope.row) ? '#f56c6c' : 'inherit' }">{{ scope.row.deadline }}</span>
+                  <DeadlineProgress :deadline="scope.row.deadline" :state="scope.row.state" />
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="280" fixed="right">
@@ -208,6 +226,22 @@
     <!-- 数据包上传 -->
     <input ref="pkgInputRef" type="file" accept=".zip,.tar,.gz,.7z" style="display:none" @change="onPkgInputChange" />
 
+    <!-- 批量操作浮动工具条 -->
+    <transition name="bar-up">
+      <div v-if="selectedTasks.length" class="batch-bar">
+        <span class="bb-count">已选 <b>{{ selectedTasks.length }}</b> 项</span>
+        <div class="bb-divider" />
+        <template v-if="isAdminLike">
+          <el-button size="small" type="primary" :icon="Promotion" @click="taskDialogsRef?.openBatchDispatch(selectedTasks)">批量派发</el-button>
+        </template>
+        <template v-else>
+          <el-button size="small" type="success" :icon="Upload" @click="openDeliverForSelected">提交交付</el-button>
+          <el-button v-if="selectedTasks.some(t => t.state === 'ACCEPTED')" size="small" type="warning" :icon="Promotion" @click="goSettlement">去结算</el-button>
+        </template>
+        <el-button size="small" text @click="clearSelection">取消</el-button>
+      </div>
+    </transition>
+
     <!-- 导入明细 -->
 
     <!-- 新建项目向导 -->
@@ -225,7 +259,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Search, Plus, Upload, Edit, Delete, ArrowDown, List, Warning, Promotion, Connection, Finished } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
@@ -241,6 +275,8 @@ import ImportTasksDialog from './components/ImportTasksDialog.vue'
 import ImportItemsDialog from './components/ImportItemsDialog.vue'
 import TaskDialogs from './components/TaskDialogs.vue'
 import TaskItemsTable from './components/TaskItemsTable.vue'
+import TaskStatePopover from '@/components/TaskStatePopover.vue'
+import DeadlineProgress from '@/components/DeadlineProgress.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -360,6 +396,7 @@ function selectProject(proj) {
   stateFilter.value = ''
   selectedTasks.value = []
   loadProjectTasks(proj.id)
+  syncFiltersToUrl()
 }
 
 
@@ -415,6 +452,7 @@ const openDeliverForSelected = () => {
 const goSettlement = () => {
   router.push('/finance/bill')
 }
+const clearSelection = () => { selectedTasks.value = [] }
 
 
 const handleStatusChange = async (proj, val) => {
@@ -497,10 +535,23 @@ const loadProjects = async () => {
     projectList.value = data
     loadAllProjects()
     if (!selectedId.value && data.length) {
-      selectedId.value = data[0].id
+      // 恢复 URL 记忆的选中项目，否则默认第一个
+      const fromUrl = Number(router.currentRoute.value.query.projectId)
+      selectedId.value = data.some(p => p.id === fromUrl) ? fromUrl : data[0].id
     }
   } finally { loading.value = false }
 }
+
+// 筛选/选中状态同步到 URL，刷新不丢失、链接可分享
+const syncFiltersToUrl = () => {
+  const q = {}
+  if (searchKey.value.trim()) q.k = searchKey.value.trim()
+  if (statusFilter.value) q.status = statusFilter.value
+  if (stateFilter.value) q.state = stateFilter.value
+  if (selectedId.value) q.projectId = selectedId.value
+  router.replace({ query: q }).catch(() => {})
+}
+watch([searchKey, statusFilter, stateFilter], syncFiltersToUrl)
 
 const loadAllProjects = () => { projectList.value.forEach(p => loadProjectTasks(p.id)) }
 
@@ -567,7 +618,15 @@ const openImport = () => {
   }).catch(() => {})
 }
 
-onMounted(() => { loadProjects(); window.addEventListener('focus', loadProjects); window.addEventListener('visibilitychange', () => { if (!document.hidden) loadProjects() }) })
+onMounted(() => {
+  // 从 URL 恢复筛选记忆
+  const q = router.currentRoute.value.query
+  if (q.k) searchKey.value = String(q.k)
+  if (q.status) statusFilter.value = String(q.status)
+  if (q.state) stateFilter.value = String(q.state)
+  loadProjects()
+  window.addEventListener('focus', loadProjects); window.addEventListener('visibilitychange', () => { if (!document.hidden) loadProjects() })
+})
 </script>
 
 <style scoped>
@@ -640,4 +699,54 @@ onMounted(() => { loadProjects(); window.addEventListener('focus', loadProjects)
 .import-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .import-preview { margin-top: 16px; padding-top: 12px; border-top: 1px solid #ebeef5; }
 .import-actions { margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ===== 空状态引导 ===== */
+.onboard {
+  padding: 26px 20px;
+  text-align: center;
+}
+.ob-head { font-size: 15px; font-weight: 700; color: var(--text-1); margin-bottom: 18px; }
+.ob-steps { display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px; text-align: left; }
+.ob-step {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  padding: 11px 14px;
+}
+.ob-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--primary-bg); color: var(--primary);
+  font-size: 13px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.ob-txt b { display: block; font-size: 13.5px; color: var(--text-1); }
+.ob-txt em { font-style: normal; font-size: 12px; color: var(--text-3); }
+
+/* ===== 批量操作浮动工具条 ===== */
+.batch-bar {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(23, 28, 38, 0.92);
+  backdrop-filter: blur(14px);
+  border-radius: 14px;
+  padding: 10px 18px;
+  box-shadow: 0 12px 36px rgba(23, 28, 38, 0.28);
+}
+.bb-count { color: #cdd6e8; font-size: 13.5px; white-space: nowrap; }
+.bb-count b { color: #fff; font-size: 16px; margin: 0 2px; }
+.bb-divider { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.16); }
+
+.bar-up-enter-active, .bar-up-leave-active { transition: all 0.28s cubic-bezier(0.34, 1.3, 0.64, 1); }
+.bar-up-enter-from, .bar-up-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(24px);
+}
 </style>

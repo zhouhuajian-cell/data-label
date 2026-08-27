@@ -46,11 +46,15 @@
         <el-table-column label="样本量" prop="sampleCount" width="80" />
         <el-table-column label="状态" width="100">
           <template #default="scope">
-            <el-tag :type="getStateType(scope.row.state)" size="small">{{ getStateText(scope.row.state) }}</el-tag>
+            <TaskStatePopover :task-id="scope.row.id" :state="scope.row.state" :task-name="scope.row.taskName" />
           </template>
         </el-table-column>
         <el-table-column label="驳回" prop="rejectCount" width="60" />
-        <el-table-column label="截止" prop="deadline" width="150" />
+        <el-table-column label="截止" prop="deadline" width="150">
+          <template #default="scope">
+            <DeadlineProgress :deadline="scope.row.deadline" :state="scope.row.state" />
+          </template>
+        </el-table-column>
         <el-table-column label="操作" :width="userRole === 1 ? 320 : 240" fixed="right">
           <template #default="scope">
             <el-button text size="small" type="primary" @click="$router.push('/task/detail/' + scope.row.id)">详情</el-button>
@@ -173,6 +177,8 @@ import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import DeliverModal from '@/components/task/DeliverModal.vue'
+import TaskStatePopover from '@/components/TaskStatePopover.vue'
+import DeadlineProgress from '@/components/DeadlineProgress.vue'
 import { acceptTaskApi, completeWorkApi, createTaskApi, dispatchTaskApi, getSupplierListApi, getTaskListApi, reviewTaskApi, updateTaskApi, deleteTaskApi, submitTaskApi } from '@/api/tasks'
 import { TASK_STATE_MAP, getTaskStateText as getStateText, getTaskStateType as getStateType, calcWarningLevel, REJECT_ERROR_TYPES } from '@/utils/constants'
 
