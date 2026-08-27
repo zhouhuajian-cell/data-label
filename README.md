@@ -77,7 +77,7 @@
 ## 目录结构
 
 ```
-maxieye/
+数据协同/
 ├── index.html                  # Vite 入口 HTML
 ├── vite.config.js              # 构建配置(@ 别名、代理、手动分包)
 ├── package.json                # 脚本与依赖 ("type": "module")
