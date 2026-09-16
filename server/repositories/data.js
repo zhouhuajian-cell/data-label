@@ -8,7 +8,12 @@ export const users = [
   { id: 8, username: 'anno_a2', password: '123', userName: '标注员A2', roleType: 4, supplierId: 101, disabled: false },
   { id: 9, username: 'anno_b1', password: '123', userName: '标注员B1', roleType: 4, supplierId: 102, disabled: false },
   { id: 11, username: 'clean_a1', password: '123', userName: '数据清洗A1', roleType: 7, supplierId: null, disabled: false },
-  { id: 12, username: 'clean_b1', password: '123', userName: '数据清洗B1', roleType: 7, supplierId: null, disabled: false }
+  { id: 12, username: 'clean_b1', password: '123', userName: '数据清洗B1', roleType: 7, supplierId: null, disabled: false },
+  // 验收结算确认流四级确认人（角色号 13-16，见 src/utils/constants.js 的 ROLE_TYPE）
+  { id: 21, username: 'biz_eng', password: '123', userName: '业务工程师', roleType: 13, supplierId: null, disabled: false },
+  { id: 22, username: 'finance_01', password: '123', userName: '财务专员', roleType: 14, supplierId: null, disabled: false },
+  { id: 23, username: 'leader_01', password: '123', userName: '项目负责人', roleType: 15, supplierId: null, disabled: false },
+  { id: 24, username: 'perception_01', password: '123', userName: '感知工程师', roleType: 16, supplierId: null, disabled: false }
 ]
 
 export const suppliers = [
@@ -66,6 +71,12 @@ export const scenarioDimensions = [
 // 数据治理中心：R&D 导入的原始数据集合（与项目管理分离）
 export const governedDatasets = []
 export const governedItems = []
+
+// ===== 验收结算确认流（后验收费节点）=====
+// 结算确认单：供应商上传已验收数据 → 业务工程师 → 财务端 → 负责人 → 感知工程师 四级确认
+export const bills = []
+// 结算确认单明细行（导入/解析产出，1:N）
+export const billItems = []
 
 // 飞书 Webhook 配置（支持多群推送）
 export const feishuConfig = { webhooks: [{ name: '测试通知群', url: 'https://open.feishu.cn/open-apis/bot/v2/hook/731cd5f4-3698-410c-aa58-50222462b983' }], enabled: true }

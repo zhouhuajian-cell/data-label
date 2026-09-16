@@ -73,6 +73,7 @@ const cursor = ref(0)
 
 const projects = ref([])
 const tasks = ref([])
+const projectsDisabled = ref(false)
 
 const filteredProjects = computed(() => {
   const k = keyword.value.trim().toLowerCase()
@@ -124,7 +125,7 @@ async function search() {
   if (!keyword.value.trim()) { tasks.value = []; return }
   loading.value = true
   try {
-    const res = await request('/tasks?pageSize=20&searchKey=' + encodeURIComponent(keyword.value.trim()))
+    const res = await request('/tasks?pageSize=20&searchKey=' + encodeURIComponent(keyword.value.trim()), { silent: true })
     tasks.value = res.data || []
   } catch {}
   loading.value = false
@@ -158,12 +159,15 @@ function open() {
   loadProjects()
 }
 
+// 项目搜索项对无项目查看权限的角色不可用：静默失败，不弹全局错误提示
 async function loadProjects() {
-  if (projects.value.length) return
+  if (projects.value.length || projectsDisabled.value) return
   try {
-    const res = await request('/projects')
+    const res = await request('/projects', { silent: true })
     projects.value = res.data || []
-  } catch {}
+  } catch {
+    projectsDisabled.value = true
+  }
 }
 
 function onKeydown(e) {

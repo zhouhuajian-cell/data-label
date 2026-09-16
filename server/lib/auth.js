@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { ApiError } from './http.js'
 import { config } from '../config.js'
 import { users } from '../repositories/data.js'
+import { tokenRoles } from './roles.js'
 
 const base64url = input => Buffer.from(input).toString('base64url')
 const decode = input => JSON.parse(Buffer.from(input, 'base64url').toString('utf8'))
@@ -13,11 +14,12 @@ function sign(data) {
 export function issueToken(user) {
   const now = Math.floor(Date.now() / 1000)
   const header = { alg: 'HS256', typ: 'JWT' }
+  const { roleType, roleTypes } = tokenRoles(user)
   const payload = {
     sub: String(user.id),
     username: user.username,
-    roleType: user.roleType,
-    supplierId: user.supplierId,
+    roleType,
+    roleTypes,
     iat: now,
     exp: now + config.tokenTtlSeconds
   }

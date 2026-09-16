@@ -3,8 +3,17 @@
   <el-dialog v-model="editProjectVisible" title="编辑项目" width="600px">
     <el-form ref="editProjectFormRef" :model="editProjectForm" :rules="editProjectRules" label-width="90px">
       <el-form-item label="项目名称" prop="name"><el-input v-model="editProjectForm.name" /></el-form-item>
-      <el-form-item label="标注类型" prop="annotateType">
-        <el-select v-model="editProjectForm.annotateType" style="width:100%"><el-option v-for="t in annotateTypes" :key="t" :label="t" :value="t" /></el-select>
+      <el-form-item label="业务类型">
+        <el-select v-model="editProjectForm.bizType" placeholder="默认标注" filterable allow-create default-first-option style="width:100%">
+          <el-option label="标注" value="标注" />
+          <el-option label="数据闭环" value="数据闭环" />
+          <el-option label="vslam" value="vslam" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="数据类型" prop="annotateType">
+        <el-select v-model="editProjectForm.annotateType" placeholder="可不填，也可自定义" filterable allow-create clearable default-first-option style="width:100%">
+          <el-option v-for="t in annotateTypes" :key="t" :label="t" :value="t" />
+        </el-select>
       </el-form-item>
       <el-form-item label="截止时间"><el-date-picker v-model="editProjectForm.deadline" type="date" style="width:100%" value-format="YYYY-MM-DD" /></el-form-item>
       <el-form-item label="项目描述"><el-input v-model="editProjectForm.description" type="textarea" :rows="3" /></el-form-item>
@@ -128,13 +137,14 @@ const loadSuppliers = async () => { if (!props.supplierList.length) try { const 
 // ===== 编辑项目 =====
 const editProjectVisible = ref(false)
 const editProjectFormRef = ref(null)
-const editProjectForm = reactive({ id: null, name: '', annotateType: '', deadline: '', description: '', template: '', uploadPath: '' })
+const editProjectForm = reactive({ id: null, name: '', bizType: '标注', annotateType: '', deadline: '', description: '', template: '', uploadPath: '' })
 const editProjectRules = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
-  annotateType: [{ required: true, message: '请选择标注类型', trigger: 'change' }]
+  // 数据类型选填（可不填、可自定义）；业务类型默认「标注」
+  bizType: []
 }
 const openEditProject = (proj) => {
-  Object.assign(editProjectForm, { id: proj.id, name: proj.name, annotateType: proj.annotateType, deadline: proj.deadline === '-' ? '' : proj.deadline, description: proj.description, template: proj.template || '', uploadPath: proj.uploadPath || '' })
+  Object.assign(editProjectForm, { id: proj.id, name: proj.name, bizType: proj.bizType || '标注', annotateType: proj.annotateType, deadline: proj.deadline === '-' ? '' : proj.deadline, description: proj.description, template: proj.template || '', uploadPath: proj.uploadPath || '' })
   editProjectVisible.value = true
 }
 const submitEditProject = async () => {

@@ -17,58 +17,67 @@
         class="menu-list"
         background-color="transparent"
       >
-        <el-menu-item index="/dashboard">
+        <!-- 数据生产域看板仅在对应模块开启时显示（结算总览已并入「验收结算确认」） -->
+        <el-menu-item v-if="showDataModule" index="/dashboard">
           <el-icon><DataBoard /></el-icon>
           <template #title>仪表盘</template>
           <el-badge v-if="userStore.pendingTaskCount" :value="userStore.pendingTaskCount" />
         </el-menu-item>
 
-        <el-menu-item v-if="isSupplierSide" index="/supplier/dashboard">
-          <el-icon><HomeFilled /></el-icon>
-          <template #title>供应商门户</template>
-          <el-badge v-if="userStore.unReadMsg" :value="userStore.unReadMsg" type="danger" />
+        <!-- 1. 数据仪表盘：累积结算 + 成本中心金额分布（原「结算汇总看板」，从供应商管理拎出来做一级入口） -->
+        <el-menu-item v-if="canViewSummary" index="/supplier/list">
+          <el-icon><DataBoard /></el-icon>
+          <template #title>数据仪表盘</template>
         </el-menu-item>
 
-        <el-menu-item v-if="isClientQa" index="/qa">
-          <el-icon><Select /></el-icon>
-          <template #title>质检工作台</template>
-        </el-menu-item>
-
-        <el-menu-item v-if="canViewDataset" index="/dataset">
-          <el-icon><Coin /></el-icon>
-          <template #title>数据管理中心</template>
-        </el-menu-item>
-
+        <!-- 2. 项目管理：结算是以项目为导向的，项目下完成"上传/解析验收数据 → 跟踪结算" -->
         <el-menu-item v-if="canManageProjects" index="/supplier/projects">
           <el-icon><FolderOpened /></el-icon>
           <template #title>项目管理</template>
         </el-menu-item>
 
-        <el-menu-item v-if="isVendorTl" index="/task">
-          <el-icon><Document /></el-icon>
-          <template #title>我的任务</template>
-          <el-badge v-if="userStore.pendingTaskCount" :value="userStore.pendingTaskCount" />
+        <!-- 3. 数据验收进度：供应商上传 → 工程师/财务/统结方/负责人/算法 逐环节确认 -->
+        <el-menu-item v-if="canViewBills" index="/finance/bills">
+          <el-icon><Tickets /></el-icon>
+          <template #title>数据验收进度</template>
+          <el-badge v-if="userStore.pendingTaskCount" :value="userStore.pendingTaskCount" type="warning" />
         </el-menu-item>
 
-        <el-menu-item v-if="userStore.token && canViewTaskManage" index="/task">
-          <el-icon><Document /></el-icon>
-          <template #title>任务管理</template>
+        <!-- 4. 财务结算：每一单验收数据都流转到此，由财务逐单核算 -->
+        <el-menu-item v-if="canViewSettlement" index="/finance/settlement">
+          <el-icon><Money /></el-icon>
+          <template #title>财务结算</template>
         </el-menu-item>
 
-        <el-menu-item index="/message">
-          <el-icon><Message /></el-icon>
-          <template #title>消息中心</template>
-          <el-badge v-if="userStore.unReadMsg" :value="userStore.unReadMsg" type="danger" />
-        </el-menu-item>
+        <!-- ===== 数据生产域（FEATURES.DATA_MODULE 关闭时整段隐藏） ===== -->
+        <template v-if="showDataModule">
+          <el-menu-item v-if="isSupplierSide" index="/supplier/dashboard">
+            <el-icon><HomeFilled /></el-icon>
+            <template #title>供应商门户</template>
+            <el-badge v-if="userStore.unReadMsg" :value="userStore.unReadMsg" type="danger" />
+          </el-menu-item>
 
-        <el-sub-menu v-if="isClientPm" index="admin-manage">
-          <template #title>
-            <el-icon><OfficeBuilding /></el-icon>
-            <span>供应商管理</span>
-          </template>
-          <el-menu-item index="/supplier/list">供应商列表</el-menu-item>
-          <el-menu-item index="/finance/bill">结算管理</el-menu-item>
-        </el-sub-menu>
+          <el-menu-item v-if="isClientQa" index="/qa">
+            <el-icon><Select /></el-icon>
+            <template #title>质检工作台</template>
+          </el-menu-item>
+
+          <el-menu-item v-if="canViewDataset" index="/dataset">
+            <el-icon><Coin /></el-icon>
+            <template #title>数据管理中心</template>
+          </el-menu-item>
+
+          <el-menu-item v-if="isVendorTl" index="/task">
+            <el-icon><Document /></el-icon>
+            <template #title>我的任务</template>
+            <el-badge v-if="userStore.pendingTaskCount" :value="userStore.pendingTaskCount" />
+          </el-menu-item>
+
+          <el-menu-item v-if="userStore.token && canViewTaskManage" index="/task">
+            <el-icon><Document /></el-icon>
+            <template #title>任务管理</template>
+          </el-menu-item>
+        </template>
 
         <el-menu-item v-if="isClientPm" index="/admin/users">
           <el-icon><User /></el-icon>
@@ -80,13 +89,19 @@
           <template #title>系统日志</template>
         </el-menu-item>
 
-        <el-sub-menu v-if="isVendorTl" index="supplier-mine">
+        <!-- 消息中心：待办与流程提醒的唯一入口，保留在管理项之后 -->
+        <el-menu-item index="/message">
+          <el-icon><Message /></el-icon>
+          <template #title>消息中心</template>
+          <el-badge v-if="userStore.unReadMsg" :value="userStore.unReadMsg" type="danger" />
+        </el-menu-item>
+
+        <el-sub-menu v-if="isVendorTl && showDataModule" index="supplier-mine">
           <template #title>
             <el-icon><User /></el-icon>
             <span>我的管理</span>
           </template>
           <el-menu-item index="/supplier/performance">绩效分析</el-menu-item>
-          <el-menu-item index="/finance/bill">收款结算</el-menu-item>
         </el-sub-menu>
       </el-menu>
     </el-scrollbar>
@@ -94,36 +109,58 @@
     <div class="user-footer">
       <el-dropdown trigger="click">
         <div class="user-info">
-          <el-avatar size="30" class="user-avatar">{{ userStore.userInfo.userName.slice(0,1) }}</el-avatar>
-          <span v-if="!isFold" class="user-name">{{ userStore.userInfo.userName }}</span>
+          <el-avatar size="30" class="user-avatar">{{ (userStore.userInfo.userName || '?').slice(0,1) }}</el-avatar>
+          <span v-if="!isFold" class="user-meta">
+            <span class="user-name">{{ userStore.userInfo.userName }}</span>
+            <span class="user-roles">{{ roleSummary }}</span>
+          </span>
         </div>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item @click="userStore.logout()">退出登录</el-dropdown-item>
+            <el-dropdown-item @click="pwdVisible = true">修改密码</el-dropdown-item>
+            <el-dropdown-item divided @click="userStore.logout()">退出登录</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
     </div>
+
+    <ChangePasswordDialog v-model="pwdVisible" />
   </div>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useUserStore } from '@/store/user'
-import { ROLE_TYPE } from '@/utils/constants'
-import { DataLine, ArrowLeft, DataBoard, Document, FolderOpened, Message, OfficeBuilding, User, EditPen, Select, HomeFilled, Coin, List } from '@element-plus/icons-vue'
+import { ROLE_TYPE, FEATURES, BILL_ALL_ROLES, hasRole, hasAnyRole, roleLabelsOf, canAccessBills } from '@/utils/constants'
+import ChangePasswordDialog from '@/components/common/ChangePasswordDialog.vue'
+import { DataLine, ArrowLeft, DataBoard, Document, FolderOpened, Message, User, EditPen, Select, HomeFilled, Coin, List, Tickets, UploadFilled, Money } from '@element-plus/icons-vue'
 const userStore = useUserStore()
 const isFold = ref(localStorage.getItem('sidebarFold') === '1')
+const pwdVisible = ref(false)
 
-const currentRole = computed(() => userStore.userInfo.roleType)
-const isClientPm = computed(() => currentRole.value === ROLE_TYPE.CLIENT_PM)
-const isClientQa = computed(() => currentRole.value === ROLE_TYPE.CLIENT_QA)
-const isVendorTl = computed(() => currentRole.value === ROLE_TYPE.VENDOR_TL)
-const isAnnotator = computed(() => currentRole.value === ROLE_TYPE.ANNOTATOR)
-const isSupplierSide = computed(() => [ROLE_TYPE.VENDOR_TL, ROLE_TYPE.ANNOTATOR].includes(currentRole.value))
-const canViewDataset = computed(() => [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.ALGO_ENG, ROLE_TYPE.DATA_CLEANER].includes(currentRole.value))
-const canManageProjects = computed(() => [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.DATA_CLEANER].includes(currentRole.value))
-const canViewTaskManage = computed(() => ![ROLE_TYPE.CLIENT_PM, ROLE_TYPE.CLIENT_QA, ROLE_TYPE.VENDOR_TL, ROLE_TYPE.ANNOTATOR].includes(currentRole.value))
+// 账号可持多角色：菜单按"命中任一角色"放开
+const userInfo = computed(() => userStore.userInfo)
+const isClientPm = computed(() => hasRole(userInfo.value, ROLE_TYPE.CLIENT_PM))
+const isClientQa = computed(() => hasRole(userInfo.value, ROLE_TYPE.CLIENT_QA))
+const isVendorTl = computed(() => hasRole(userInfo.value, ROLE_TYPE.VENDOR_TL))
+const isAnnotator = computed(() => hasRole(userInfo.value, ROLE_TYPE.ANNOTATOR))
+const isSupplierSide = computed(() => hasAnyRole(userInfo.value, [ROLE_TYPE.VENDOR_TL, ROLE_TYPE.ANNOTATOR]))
+const canViewDataset = computed(() => hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.ALGO_ENG, ROLE_TYPE.DATA_CLEANER]))
+// 项目管理：供应商也需要（项目下上传验收数据）
+const canManageProjects = computed(() => hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.DATA_CLEANER, ROLE_TYPE.VENDOR_TL]))
+// 无任何"供应商侧/甲方质检"角色的账号才看到任务管理（数据生产域）
+const canViewTaskManage = computed(() => !hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.CLIENT_QA, ROLE_TYPE.VENDOR_TL, ROLE_TYPE.ANNOTATOR]))
+// 数据生产域开关
+const showDataModule = computed(() => FEATURES.DATA_MODULE)
+// 验收结算确认流入口
+// 结算确认页：确认链角色与甲方PM可见；纯供应商只在项目页内看结算
+const canViewBills = computed(() => canAccessBills(userInfo.value))
+const canSubmitBill = computed(() => hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.VENDOR_TL]))
+// 财务结算页：财务与甲方PM
+const canViewSettlement = computed(() => hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.FINANCE]))
+// 数据仪表盘（结算汇总看板）：甲方PM 与财务看结算全貌
+const canViewSummary = computed(() => hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.FINANCE]))
+const roleSummary = computed(() => roleLabelsOf(userInfo.value).join(' / ') || '-')
 
 watch(isFold, (val) => {
   localStorage.setItem('sidebarFold', val ? '1' : '0')
@@ -274,9 +311,22 @@ watch(isFold, (val) => {
   flex-shrink: 0;
   box-shadow: 0 2px 8px rgba(79, 112, 236, 0.4);
 }
+.user-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
 .user-name {
   font-size: 13px;
   color: #cdd6e8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user-roles {
+  font-size: 11px;
+  color: #7c8aa5;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

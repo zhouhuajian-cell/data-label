@@ -73,11 +73,10 @@
         </div>
 
         <div class="list-footer">
-          <template v-if="isAdminLike">
+          <template v-if="canCreateProject">
             <el-button :icon="Upload" @click="openImport" style="flex:1">批量导入</el-button>
             <el-button type="primary" :icon="Plus" @click="wizardRef?.open()" style="flex:1">新建项目</el-button>
           </template>
-          <el-button v-else style="flex:1" disabled>供应商只读视图</el-button>
         </div>
       </div>
 
@@ -101,19 +100,68 @@
               </el-descriptions>
               <div v-if="selectedProject.description" class="ph-desc-text">{{ selectedProject.description }}</div>
             </div>
-            <div class="ph-actions" v-if="isAdminLike">
+            <div class="ph-actions" v-if="canCreateProject">
               <el-button size="small" :icon="Edit" @click="taskDialogsRef?.openEditProject(selectedProject)">编辑</el-button>
-              <el-select :model-value="selectedProject.status" size="small" style="width:104px" @change="(v) => handleStatusChange(selectedProject, v)">
-                <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
-              </el-select>
               <el-button size="small" type="danger" plain :icon="Delete" @click="deleteProject(selectedProject)">删除</el-button>
-              <el-button v-if="selectedProject.status === 'active'" size="small" type="success" :icon="Finished" @click="onArchiveProject">结项归档</el-button>
-              <el-button size="small" :icon="Promotion" @click="onPushFeishu">推送飞书</el-button>
+              <template v-if="canManageProject">
+                <el-select :model-value="selectedProject.status" size="small" style="width:104px" @change="(v) => handleStatusChange(selectedProject, v)">
+                  <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
+                </el-select>
+                <el-button v-if="selectedProject.status === 'active'" size="small" type="success" :icon="Finished" @click="onArchiveProject">结项归档</el-button>
+                <el-button size="small" :icon="Promotion" @click="onPushFeishu">推送飞书</el-button>
+              </template>
             </div>
           </el-card>
 
-          <!-- 任务管理 -->
-          <el-card class="task-panel" shadow="never">
+          <!-- 验收数据与结算（项目管理主线：项目下上传/解析验收数据并跟踪结算） -->
+          <el-card v-if="!showDataModule" class="task-panel" shadow="never" v-loading="projectBillsLoading">
+            <div class="tp-toolbar">
+              <div class="tp-title">验收数据与结算</div>
+              <div class="tp-actions">
+                <el-button size="small" type="primary" :icon="Upload" @click="openUploadDialog">上传验收数据</el-button>
+                <el-button v-if="canViewAllBills" size="small" :icon="List" @click="goProjectBills">查看全部结算单</el-button>
+              </div>
+            </div>
+
+            <div class="settle-summary">
+              <div class="ss-item">
+                <span class="ss-label">结算单</span><b>{{ projectBillStats.total }}</b><span class="ss-unit">单</span>
+              </div>
+              <div class="ss-item">
+                <span class="ss-label">确认中</span><b>{{ projectBillStats.pending }}</b><span class="ss-unit">单 · ¥{{ formatMoney(projectBillStats.pendingAmount) }}</span>
+              </div>
+              <div class="ss-item">
+                <span class="ss-label">已通过</span><b class="ss-ok">{{ projectBillStats.approved }}</b><span class="ss-unit">单 · ¥{{ formatMoney(projectBillStats.approvedAmount) }}</span>
+              </div>
+              <div class="ss-item">
+                <span class="ss-label">已驳回</span><b class="ss-bad">{{ projectBillStats.rejected }}</b><span class="ss-unit">单</span>
+              </div>
+            </div>
+
+            <el-table :data="projectBills" border size="small">
+              <el-table-column label="结算单号" prop="billNo" width="146" />
+              <el-table-column label="批次名称" prop="batchName" min-width="130" show-overflow-tooltip />
+              <el-table-column label="供应商" prop="supplierName" width="100" show-overflow-tooltip />
+              <el-table-column label="金额(元)" width="104">
+                <template #default="s"><span class="money">¥{{ formatMoney(s.row.totalAmount) }}</span></template>
+              </el-table-column>
+              <el-table-column label="结算进度" width="150">
+                <template #default="s"><BillChainProgress :chain="s.row.chain" :status="s.row.status" compact /></template>
+              </el-table-column>
+              <el-table-column label="当前环节" width="130">
+                <template #default="s"><el-tag :type="getBillStatusType(s.row.status)" size="small">{{ getBillStatusText(s.row.status) }}</el-tag></template>
+              </el-table-column>
+              <el-table-column label="操作" width="76" fixed="right">
+                <template #default="s"><el-button text size="small" type="primary" @click="openProjectBill(s.row.id)">查看</el-button></template>
+              </el-table-column>
+              <template #empty>
+                <span style="color:#c0c4cc">该项目暂无结算单，点击「上传验收数据」开始</span>
+              </template>
+            </el-table>
+          </el-card>
+
+          <!-- 任务明细（数据生产域，模块关闭时不显示） -->
+          <el-card v-if="showDataModule" class="task-panel" shadow="never">
             <div class="tp-toolbar">
               <div class="tp-title">任务明细</div>
               <div class="tp-actions">
@@ -244,6 +292,12 @@
 
     <!-- 导入明细 -->
 
+    <!-- 上传/编辑验收数据（项目页内完成） -->
+    <AcceptanceUploadDialog v-model="uploadVisible" :project="selectedProject" @submitted="onUploaded" />
+
+    <!-- 结算单详情（项目页内查看，含明细与确认/驳回/重新提交） -->
+    <BillDetailDrawer v-model="detailVisible" :bill-id="detailBillId" @changed="loadProjectBills" />
+
     <!-- 新建项目向导 -->
     <CreateProjectWizard ref="wizardRef" @created="loadProjects" />
 
@@ -259,7 +313,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Search, Plus, Upload, Edit, Delete, ArrowDown, List, Warning, Promotion, Connection, Finished } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
@@ -269,7 +323,11 @@ import { getSupplierListApi, deleteTaskApi, getTaskListApi, getTaskDetailApi } f
 import { getTaskItemsApi, updateTaskItemApi, deleteTaskItemApi, batchUpdateTaskItemsApi, uploadTaskPackageApi } from '@/api/items'
 import { pushProjectSummaryApi } from '@/api/feishu'
 import { useDownload } from '@/composables/useDownload'
-import { getTaskStateText as getStateText, getTaskStateType as getStateType, REJECT_ERROR_TYPES, ITEM_STATUS_MAP } from '@/utils/constants'
+import { getTaskStateText as getStateText, getTaskStateType as getStateType, REJECT_ERROR_TYPES, ITEM_STATUS_MAP, FEATURES, formatMoney, getBillStatusText, getBillStatusType, ROLE_TYPE, hasAnyRole, canAccessBills } from '@/utils/constants'
+import { listBillsApi } from '@/api/finance'
+import BillChainProgress from '@/components/finance/BillChainProgress.vue'
+import AcceptanceUploadDialog from '@/components/finance/AcceptanceUploadDialog.vue'
+import BillDetailDrawer from '@/components/finance/BillDetailDrawer.vue'
 import CreateProjectWizard from './components/CreateProjectWizard.vue'
 import ImportTasksDialog from './components/ImportTasksDialog.vue'
 import ImportItemsDialog from './components/ImportItemsDialog.vue'
@@ -300,6 +358,14 @@ const reloadItems = () => {
   loadItems({ id })
 }
 const isAdminLike = computed(() => [1, 7].includes(userStore.userInfo.roleType))
+// 建项目/批量导入：供应商(3)也可（供应商在项目页建项目并上传验收数据）
+const canCreateProject = computed(() => hasAnyRole(userStore.userInfo, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.CLIENT_QA, ROLE_TYPE.DATA_CLEANER, ROLE_TYPE.VENDOR_TL]))
+// 项目编辑/删除/归档/状态：仅 甲方PM 与 数据清洗
+const canManageProject = isAdminLike
+// "查看全部结算单"仅对可访问结算页的账号显示（纯供应商在项目页内看即可）
+const canViewAllBills = computed(() => canAccessBills(userStore.userInfo))
+// 数据生产域开关：关闭时项目页只呈现"上传验收数据 + 结算跟踪"
+const showDataModule = FEATURES.DATA_MODULE
 const loading = ref(false)
 const detailLoading = ref(false)
 const actionLoading = ref(false)
@@ -355,6 +421,53 @@ const filteredProjects = computed(() => {
 })
 
 const selectedProject = computed(() => projectList.value.find(p => p.id === selectedId.value))
+
+// ===== 项目维度的结算数据（项目下直接看结算情况）=====
+const projectBills = ref([])
+const projectBillsLoading = ref(false)
+const uploadVisible = ref(false)
+// 该项目结算单详情（页内抽屉，供应商无需跳转结算页即可看明细）
+const detailVisible = ref(false)
+const detailBillId = ref(null)
+
+const projectBillStats = computed(() => {
+  const list = projectBills.value
+  const pending = list.filter(b => String(b.status).startsWith('PENDING_'))
+  const approved = list.filter(b => b.status === 'APPROVED')
+  const rejected = list.filter(b => b.status === 'REJECTED')
+  const sum = (arr) => Number(arr.reduce((s, b) => s + (b.totalAmount || 0), 0).toFixed(2))
+  return {
+    total: list.length,
+    pending: pending.length, pendingAmount: sum(pending),
+    approved: approved.length, approvedAmount: sum(approved),
+    rejected: rejected.length
+  }
+})
+
+async function loadProjectBills() {
+  if (showDataModule || !selectedId.value) { projectBills.value = []; return }
+  projectBillsLoading.value = true
+  try {
+    const { data } = await listBillsApi({ projectId: selectedId.value, pageSize: 50 })
+    projectBills.value = data || []
+  } catch { projectBills.value = [] } finally { projectBillsLoading.value = false }
+}
+
+// 上传验收数据在项目页内以弹窗完成（统一入口）
+function openUploadDialog() {
+  if (!selectedProject.value) { ElMessage.warning('请先选择左侧项目'); return }
+  uploadVisible.value = true
+}
+function onUploaded() {
+  loadProjectBills()
+}
+function goProjectBills() {
+  router.push({ path: '/finance/bills', query: { projectId: selectedId.value } })
+}
+function openProjectBill(id) {
+  detailBillId.value = id
+  detailVisible.value = true
+}
 const detailTasks = computed(() => projectTasks[selectedId.value] || [])
 
 const filteredDetailTasks = computed(() => {
@@ -395,7 +508,8 @@ function selectProject(proj) {
   selectedId.value = proj.id
   stateFilter.value = ''
   selectedTasks.value = []
-  loadProjectTasks(proj.id)
+  if (showDataModule) loadProjectTasks(proj.id)
+  loadProjectBills()
   syncFiltersToUrl()
 }
 
@@ -528,18 +642,26 @@ const deleteProject = async (proj) => {
 }
 
 // ===== 数据加载 =====
+let lastLoadAt = 0
 const loadProjects = async () => {
+  lastLoadAt = Date.now()
   loading.value = true
   try {
     const { data } = await getProjectsApi()
     projectList.value = data
-    loadAllProjects()
-    if (!selectedId.value && data.length) {
-      // 恢复 URL 记忆的选中项目，否则默认第一个
-      const fromUrl = Number(router.currentRoute.value.query.projectId)
-      selectedId.value = data.some(p => p.id === fromUrl) ? fromUrl : data[0].id
+    // 数据生产域关闭时无需逐个项目拉任务，只做结算数据
+    if (showDataModule) loadAllProjects()
+    const fromUrl = Number(router.currentRoute.value.query.projectId)
+    if (fromUrl && data.some(p => p.id === fromUrl)) {
+      // URL 明确指定项目时优先（从"上传验收数据"返回也能定位回原项目）
+      selectedId.value = fromUrl
+    } else if (!selectedId.value && data.length) {
+      selectedId.value = data[0].id
     }
-  } finally { loading.value = false }
+  } finally {
+    loading.value = false
+    loadProjectBills()
+  }
 }
 
 // 筛选/选中状态同步到 URL，刷新不丢失、链接可分享
@@ -552,6 +674,7 @@ const syncFiltersToUrl = () => {
   router.replace({ query: q }).catch(() => {})
 }
 watch([searchKey, statusFilter, stateFilter], syncFiltersToUrl)
+watch(selectedId, () => loadProjectBills())
 
 const loadAllProjects = () => { projectList.value.forEach(p => loadProjectTasks(p.id)) }
 
@@ -625,7 +748,18 @@ onMounted(() => {
   if (q.status) statusFilter.value = String(q.status)
   if (q.state) stateFilter.value = String(q.state)
   loadProjects()
-  window.addEventListener('focus', loadProjects); window.addEventListener('visibilitychange', () => { if (!document.hidden) loadProjects() })
+  // 回到页面时刷新数据：加最小间隔，避免窗口焦点变化导致列表反复重渲染（也让按钮点击不被重绘打断）
+  const refreshOnReturn = () => {
+    if (Date.now() - lastLoadAt < 3000) return
+    loadProjects()
+  }
+  const onVisible = () => { if (!document.hidden) refreshOnReturn() }
+  window.addEventListener('focus', refreshOnReturn)
+  window.addEventListener('visibilitychange', onVisible)
+})
+onUnmounted(() => {
+  window.removeEventListener('focus', refreshOnReturn)
+  window.removeEventListener('visibilitychange', onVisible)
 })
 </script>
 
@@ -672,6 +806,27 @@ onMounted(() => {
 .ph-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .task-panel :deep(.el-card__body) { padding: 12px 16px; }
+.settle-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ss-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.ss-item b { font-size: 18px; color: var(--primary, #3d63dd); margin: 0 3px 0 4px; }
+.ss-item b.ss-ok { color: #18a058; }
+.ss-item b.ss-bad { color: #d64550; }
+.ss-unit { font-size: 12px; }
+.money { color: #67c23a; font-weight: 700; }
+@media (max-width: 1180px) { .settle-summary { grid-template-columns: repeat(2, 1fr); } }
+
 .tp-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .tp-title { font-size: 15px; font-weight: 600; border-left: 3px solid #409eff; padding-left: 8px; }
 .tp-actions { display: flex; gap: 8px; }

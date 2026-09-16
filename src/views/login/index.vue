@@ -12,155 +12,53 @@
       <div class="login-body">
         <div class="form-column">
           <h2 class="form-title">登录</h2>
-          <p class="form-sub">请登录您的账号以继续</p>
+          <p class="form-sub">请使用平台账号登录（账号由管理员分配）</p>
 
-          <el-tabs v-model="loginMode" class="mode-tabs">
-            <el-tab-pane label="账号登录" name="password">
-              <el-form :model="loginForm" label-width="0" @submit.prevent>
-                <el-form-item>
-                  <el-input v-model="loginForm.username" placeholder="账号" size="large" class="input-custom" />
-                </el-form-item>
-                <el-form-item>
-                  <el-input v-model="loginForm.password" type="password" show-password placeholder="密码" size="large" class="input-custom" @keyup.enter="handleLogin" />
-                </el-form-item>
-                <el-form-item>
-                  <el-button class="login-btn" :loading="loading" @click="handleLogin">登 录</el-button>
-                </el-form-item>
-              </el-form>
-            </el-tab-pane>
+          <el-form :model="loginForm" label-width="0" @submit.prevent>
+            <el-form-item>
+              <el-input v-model="loginForm.username" placeholder="账号" size="large" class="input-custom" @keyup.enter="handleLogin" />
+            </el-form-item>
+            <el-form-item>
+              <el-input v-model="loginForm.password" type="password" show-password placeholder="密码" size="large" class="input-custom" @keyup.enter="handleLogin" />
+            </el-form-item>
+            <el-form-item>
+              <el-button class="login-btn" :loading="loading" @click="handleLogin">登 录</el-button>
+            </el-form-item>
+          </el-form>
 
-            <el-tab-pane label="飞书登录" name="feishu">
-              <el-form :model="feishuForm" label-width="0">
-                <el-form-item>
-                  <el-input v-model="feishuForm.username" placeholder="飞书手机号 / 邮箱" size="large" class="input-custom" />
-                </el-form-item>
-                <el-form-item>
-                  <el-input v-model="feishuForm.password" type="password" show-password placeholder="飞书密码" size="large" class="input-custom" @keyup.enter="handleFeishuLogin" />
-                </el-form-item>
-                <el-form-item>
-                  <el-button class="login-btn" :loading="feishuLoading" @click="handleFeishuLogin">飞书登录</el-button>
-                </el-form-item>
-              </el-form>
-
-              <el-form :model="qrForm" label-width="0">
-                <el-form-item>
-                  <el-input v-model="qrForm.code" placeholder="飞书授权码" size="large" class="input-custom" @keyup.enter="handleCodeLogin" />
-                </el-form-item>
-                <el-form-item>
-                  <el-button class="login-btn login-btn-ghost" :loading="qrLoading" @click="handleCodeLogin">授权码登录</el-button>
-                </el-form-item>
-              </el-form>
-
-              <div class="demo-code-list">
-                <span>演示授权码：</span>
-                <el-button
-                  v-for="item in demoCodes"
-                  :key="item.code"
-                  size="small"
-                  text
-                  type="primary"
-                  @click="qrForm.code = item.code"
-                >{{ item.label }}</el-button>
-              </div>
-            </el-tab-pane>
-          </el-tabs>
-
-          <div class="demo-select-wrap">
-            <div class="demo-label">演示账号</div>
-            <el-select
-              v-model="selectedDemo"
-              placeholder="选择演示账号"
-              class="demo-select"
-              @change="onDemoSelect"
-            >
-              <el-option
-                v-for="item in demoAccounts"
-                :key="item.username"
-                :label="item.label + '（' + item.username + '）'"
-                :value="item.username"
-              />
-            </el-select>
+          <div class="login-hint">
+            忘记密码请联系项目管理员重置，重置后需在首次登录时修改。
           </div>
         </div>
       </div>
 
-      <div class="page-foot">© 2026 Maxieye · 智标数据协作平台</div>
+      <div class="page-foot">© 2026 Maxieye · 数据协作平台</div>
     </div>
+
+    <!-- 管理员分配的初始密码：首次登录强制改密 -->
+    <ChangePasswordDialog v-model="showChangePassword" forced @changed="enterPlatform" />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/store/user'
-import { loginApi, feishuLoginApi } from '@/api/auth'
+import { loginApi } from '@/api/auth'
+import { defaultHomePath } from '@/utils/constants'
+import ChangePasswordDialog from '@/components/common/ChangePasswordDialog.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 
-const loginMode = ref('password')
 const loading = ref(false)
-const feishuLoading = ref(false)
-const qrLoading = ref(false)
-
+const showChangePassword = ref(false)
 const loginForm = reactive({ username: '', password: '' })
-const feishuForm = reactive({ username: '', password: '' })
-const qrForm = reactive({ code: '' })
-const selectedDemo = ref('')
 
-const ROLE_LABELS = { 1: '甲方PM', 2: '甲方质检', 3: '供应商TL', 4: '标注员', 6: '算法工程师', 7: '数据清洗' }
-
-// 兜底列表（后端不可用时显示）
-const demoAccounts = ref([
-  { label: '泰兴基地', username: 'taixing', password: '123' },
-  { label: '甲方质检', username: 'qa_01', password: '123' },
-  { label: '供应商A', username: 'supp_a', password: '123' },
-  { label: '供应商B', username: 'supp_b', password: '123' },
-  { label: '算法工程师', username: 'algo_01', password: '123' },
-  { label: '数据清洗A', username: 'clean_a1', password: '123' }
-])
-
-// 从后端实时拉取账号（后台改名/新增后自动同步）
-async function loadDemoAccounts() {
-  try {
-    const res = await fetch('/api/auth/demo-accounts')
-    const json = await res.json()
-    if (json.code === 0 && Array.isArray(json.data) && json.data.length) {
-      demoAccounts.value = json.data.map(u => ({
-        label: `${u.userName}（${ROLE_LABELS[u.roleType] || '角色' + u.roleType}）`,
-        username: u.username,
-        password: '123'
-      }))
-    }
-  } catch {}
-}
-
-const demoCodes = [
-  { label: '甲方', code: 'feishu-admin' },
-  { label: '质检', code: 'feishu-qa' },
-  { label: '供应商A', code: 'feishu-suppa' },
-  { label: '供应商B', code: 'feishu-suppb' }
-]
-
-// 按角色决定登录后落地页
-function homeByRole(roleType) {
-  if (roleType === 4) return '/task'
-  if (roleType === 2) return '/qa'
-  if (roleType === 3) return '/supplier/dashboard'
-  if (roleType === 6) return '/dataset'
-  if (roleType === 7) return '/dataset'
-  return '/dashboard'
-}
-
-const fillDemo = (item) => {
-  loginForm.username = item.username
-  loginForm.password = item.password
-}
-
-const onDemoSelect = (username) => {
-  const item = demoAccounts.value.find(a => a.username === username)
-  if (item) fillDemo(item)
+// 登录后落地页按账号全部角色计算（与路由守卫同一口径）
+function enterPlatform() {
+  router.push(defaultHomePath(userStore.userInfo))
 }
 
 const handleLogin = async () => {
@@ -171,39 +69,16 @@ const handleLogin = async () => {
   try {
     const { data } = await loginApi({ username: loginForm.username, password: loginForm.password })
     userStore.setLogin({ token: data.token, userInfo: data.userInfo })
-    router.push(homeByRole(data.userInfo.roleType))
+    // 管理员重置/新建的账号带 mustChangePassword 标记，先改密再进平台
+    if (data.userInfo?.mustChangePassword) {
+      showChangePassword.value = true
+      return
+    }
+    enterPlatform()
   } finally {
     loading.value = false
   }
 }
-
-const handleFeishuLogin = async () => {
-  feishuLoading.value = true
-  try {
-    const { data } = await feishuLoginApi({ username: feishuForm.username, password: feishuForm.password })
-    userStore.setLogin({ token: data.token, userInfo: data.userInfo })
-    router.push(homeByRole(data.userInfo.roleType))
-  } catch (e) {
-    ElMessage.warning('飞书登录暂未对接，请使用账号密码登录')
-  } finally {
-    feishuLoading.value = false
-  }
-}
-
-const handleCodeLogin = async () => {
-  if (!qrForm.code) return ElMessage.warning('请输入飞书授权码')
-  qrLoading.value = true
-  try {
-    const { data } = await feishuLoginApi({ code: qrForm.code })
-    userStore.setToken(data.token)
-    userStore.setUserInfo(data.userInfo)
-    router.push(homeByRole(data.userInfo.roleType))
-  } finally {
-    qrLoading.value = false
-  }
-}
-
-onMounted(loadDemoAccounts)
 </script>
 
 <style scoped>
@@ -231,7 +106,6 @@ onMounted(loadDemoAccounts)
 .glow-1 { width: 640px; height: 640px; top: -240px; left: -160px; background: rgba(61, 99, 221, 0.13); }
 .glow-2 { width: 560px; height: 560px; bottom: -240px; right: -160px; background: rgba(124, 92, 240, 0.1); }
 
-/* ===== 铺满全屏的面板 ===== */
 .login-panel {
   position: relative;
   z-index: 1;
@@ -241,9 +115,9 @@ onMounted(loadDemoAccounts)
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(22px) saturate(1.5);
   border: 1px solid rgba(255, 255, 255, 0.75);
-  border-radius: 26px;
+  border-radius: 24px;
   box-shadow: 0 24px 80px rgba(23, 28, 38, 0.1), 0 2px 10px rgba(23, 28, 38, 0.04);
-  padding: 34px 56px 22px;
+  padding: 30px 48px 20px;
   animation: panel-in 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) both;
   overflow: hidden;
 }
@@ -259,9 +133,9 @@ onMounted(loadDemoAccounts)
   flex-shrink: 0;
 }
 .brand-mark {
-  width: 46px;
-  height: 46px;
-  border-radius: 13px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   background: linear-gradient(135deg, #4f70ec 0%, #7c5cf0 100%);
   box-shadow: 0 4px 14px rgba(79, 112, 236, 0.4);
   display: flex;
@@ -269,15 +143,14 @@ onMounted(loadDemoAccounts)
   justify-content: center;
   flex-shrink: 0;
 }
-.brand-mark span { font-size: 23px; font-weight: 800; color: #fff; }
+.brand-mark span { font-size: 22px; font-weight: 800; color: #fff; }
 .brand-name {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 700;
   color: var(--text-1);
   letter-spacing: 0.4px;
 }
 
-/* 表单区域：水平居中、垂直居中，占满剩余空间 */
 .login-body {
   flex: 1;
   display: flex;
@@ -287,7 +160,7 @@ onMounted(loadDemoAccounts)
 }
 .form-column {
   width: 100%;
-  max-width: 540px;
+  max-width: 420px;
   animation: form-in 0.5s 0.05s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 @keyframes form-in {
@@ -296,7 +169,7 @@ onMounted(loadDemoAccounts)
 }
 
 .form-title {
-  font-size: 32px;
+  font-size: 30px;
   font-weight: 700;
   color: var(--text-1);
   letter-spacing: -0.4px;
@@ -304,23 +177,11 @@ onMounted(loadDemoAccounts)
   text-align: center;
 }
 .form-sub {
-  font-size: 14.5px;
+  font-size: 14px;
   color: var(--text-3);
-  margin: 0 0 22px;
+  margin: 0 0 26px;
   text-align: center;
 }
-
-.mode-tabs :deep(.el-tabs__header) { margin: 0 0 24px; }
-.mode-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background: var(--divider); }
-.mode-tabs :deep(.el-tabs__item) {
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--text-3);
-  transition: color 0.2s;
-  height: 48px;
-}
-.mode-tabs :deep(.el-tabs__item.is-active) { color: var(--primary); font-weight: 600; }
-.mode-tabs :deep(.el-tabs__active-bar) { height: 3px; border-radius: 2px; }
 
 .input-custom :deep(.el-input__wrapper) {
   border-radius: 12px;
@@ -338,7 +199,7 @@ onMounted(loadDemoAccounts)
 
 .login-btn {
   width: 100%;
-  height: 52px;
+  height: 50px;
   border-radius: 13px;
   font-size: 17px;
   font-weight: 600;
@@ -356,35 +217,13 @@ onMounted(loadDemoAccounts)
   box-shadow: 0 8px 24px rgba(61, 99, 221, 0.4);
 }
 .login-btn:active { transform: translateY(0) scale(0.99); }
-.login-btn-ghost {
-  background: #fff;
-  color: var(--primary);
-  border: 1px solid var(--primary-border);
-  box-shadow: none;
-  letter-spacing: 3px;
-}
-.login-btn-ghost:hover { background: var(--primary-bg); }
 
-.demo-code-list {
-  margin-top: 6px;
-  font-size: 14px;
+.login-hint {
+  margin-top: 14px;
+  font-size: 12.5px;
   color: var(--text-3);
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 2px;
-  justify-content: center;
-}
-
-.demo-select-wrap { margin-top: 28px; }
-.demo-label { font-size: 13.5px; color: var(--text-3); margin-bottom: 9px; }
-.demo-select { width: 100%; }
-.demo-select :deep(.el-select__wrapper) {
-  border-radius: 12px;
-  background: var(--surface-2);
-  box-shadow: 0 0 0 1px var(--border) inset;
-  min-height: 48px;
-  font-size: 15px;
+  text-align: center;
+  line-height: 1.7;
 }
 
 .page-foot {
@@ -392,6 +231,14 @@ onMounted(loadDemoAccounts)
   text-align: center;
   font-size: 13px;
   color: var(--text-3);
-  padding-top: 16px;
+  padding-top: 14px;
+}
+
+/* 笔记本（高度较矮）下压缩纵向留白，避免表单被顶出视口 */
+@media (max-height: 780px) {
+  .form-sub { margin-bottom: 18px; }
+  .login-panel { padding: 24px 44px 16px; }
+  .form-title { font-size: 27px; }
+  .login-btn { height: 46px; }
 }
 </style>

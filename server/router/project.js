@@ -4,7 +4,7 @@ import { ApiError, created, ok, readJson } from '../lib/http.js'
 import {
   getProjectStats, updateProjectCount, listProjects, createProject, updateProjectStatus,
   updateProject, importProjects, getProjectDetail, deleteProject, splitProjectDataset,
-  archiveProject, importProjectTasksFromFile
+  archiveProject, importProjectTasksFromFile, listProjectOptions
 } from '../services/projects.js'
 import { getDashboardData } from '../services/dashboard.js'
 import { listSuppliers, importProjectTasks } from '../services/tasks.js'
@@ -19,6 +19,8 @@ export async function projectRouter(ctx) {
   if (is('GET', '/api/dashboard')) { ok(res, getDashboardData(user)); return true }
   if (is('POST', '/api/projects/count') || is('POST', '/api/project/count')) { ok(res, updateProjectCount(user, await body())); return true }
   if (is('GET', '/api/projects')) { ok(res, listProjects(user)); return true }
+  // 结算确认单的项目下拉（对结算发起方与四级确认人开放）
+  if (is('GET', '/api/projects/options')) { ok(res, listProjectOptions(user)); return true }
   if (is('GET', '/api/suppliers')) { ok(res, listSuppliers(user)); return true }
 
   const projId = m(/^\/api\/projects\/(\d+)$/)

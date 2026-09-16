@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { BILL_ALL_ROLES, FEATURES, defaultHomePath, isHiddenByDataModule, hasAnyRole, canAccessBills } from '@/utils/constants'
 
 const routes = [
   {
@@ -10,7 +11,14 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/dashboard',
+    // 根路径按账号全部角色落到各自首页（结算相关角色 → 验收结算确认）
+    redirect: () => {
+      try {
+        return defaultHomePath(JSON.parse(localStorage.getItem('userInfo') || '{}'))
+      } catch {
+        return '/dashboard'
+      }
+    },
     component: () => import('@/components/layout/MainLayout.vue'),
     children: [
       { path: '/dashboard', name: 'Dashboard', component: () => import('@/views/dashboard/index.vue'), meta: { title: '仪表盘' } },
@@ -22,9 +30,14 @@ const routes = [
       { path: '/task/detail/:id', name: 'TaskDetail', component: () => import('@/views/task/detail.vue'), meta: { title: '任务详情' } },
       { path: '/message', name: 'Message', component: () => import('@/views/message/index.vue'), meta: { title: '消息中心' } },
       { path: '/supplier/dashboard', name: 'SupplierDashboard', component: () => import('@/views/supplier/dashboard.vue'), meta: { title: '供应商门户', roles: [3, 4] } },
-      { path: '/supplier/list', name: 'SupplierList', component: () => import('@/views/supplier/list.vue'), meta: { title: '供应商列表', roles: [1] } },
-      { path: '/supplier/projects', name: 'ProjectManage', component: () => import('@/views/supplier/projects.vue'), meta: { title: '项目管理', roles: [1, 7] } },
+      { path: '/supplier/list', name: 'SettlementSummary', component: () => import('@/views/supplier/list.vue'), meta: { title: '数据仪表盘', roles: [1, 14] } },
+      { path: '/supplier/projects', name: 'ProjectManage', component: () => import('@/views/supplier/projects.vue'), meta: { title: '项目管理', roles: [1, 3, 7] } },
       { path: '/supplier/performance', name: 'Performance', component: () => import('@/views/supplier/performance.vue'), meta: { title: '绩效分析', roles: [3] } },
+      // 数据验收进度：供应商上传已验收数据 → 工程师/财务/统结方/负责人/算法 逐环节确认
+      { path: '/finance/bills', name: 'FinanceBills', component: () => import('@/views/finance/bills.vue'), meta: { title: '数据验收进度', roles: BILL_ALL_ROLES } },
+      // 财务结算：逐单核算（财务/甲方PM）
+      { path: '/finance/settlement', name: 'FinanceSettlement', component: () => import('@/views/finance/settlement.vue'), meta: { title: '财务结算', roles: [1, 14] } },
+      // 旧版阶梯绩效结算（依赖标注明细，随数据生产模块一起隐藏）
       { path: '/finance/bill', name: 'FinanceBill', component: () => import('@/views/finance/bill.vue'), meta: { title: '财务管理' } }
     ]
   },
@@ -47,14 +60,28 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const userStore = useUserStore()
+  const userInfo = userStore.userInfo
   if (to.path === '/login') {
-    return userStore.token ? next('/dashboard') : next()
+    return userStore.token ? next(defaultHomePath(userInfo)) : next()
   }
   if (!userStore.token) {
     return next('/login')
   }
-  if (to.meta.roles && !to.meta.roles.includes(userStore.userInfo.roleType)) {
-    return next('/dashboard')
+  // 数据生产模块关闭时，相关路由直接回落到本角色首页
+  if (isHiddenByDataModule(to.path)) {
+    return next(defaultHomePath(userInfo))
+  }
+  // 仪表盘已与「验收结算确认」整合为单页：数据生产域关闭时不再单独展示
+  if (!FEATURES.DATA_MODULE && to.path === '/dashboard') {
+    return next(defaultHomePath(userInfo))
+  }
+  // 结算确认页不对纯供应商开放（供应商在「项目管理」页内查看本项目结算单）
+  if (to.path.startsWith('/finance/bills') && !canAccessBills(userInfo)) {
+    return next(defaultHomePath(userInfo))
+  }
+  // meta.roles 命中账号任一角色即放行（多角色）
+  if (to.meta.roles && !hasAnyRole(userInfo, to.meta.roles)) {
+    return next(defaultHomePath(userInfo))
   }
   next()
 })

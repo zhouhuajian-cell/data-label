@@ -1,3 +1,5 @@
+import { config } from '../config.js'
+
 const buckets = new Map()
 
 const WINDOW_MS = 60 * 1000
@@ -41,5 +43,6 @@ export function createRateLimiter({ maxRequests = 10, windowMs = WINDOW_MS } = {
   }
 }
 
-export const authLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60 * 1000 })
-export const apiLimiter = createRateLimiter({ maxRequests: 100, windowMs: 60 * 1000 })
+// 阈值走配置（config.rateLimit），便于按环境调整；默认值按交互式界面用量设定
+export const authLimiter = createRateLimiter({ maxRequests: config.rateLimit.authPerMin, windowMs: 60 * 1000 })
+export const apiLimiter = createRateLimiter({ maxRequests: config.rateLimit.apiPerMin, windowMs: 60 * 1000 })

@@ -5,8 +5,12 @@ import { config } from './config.js'
 
 export function setCors(req, res) {
   const origin = req.headers.origin
-  const allowed = config.corsOrigin === '*' || (origin && origin === config.corsOrigin)
-  res.setHeader('access-control-allow-origin', allowed ? origin || String(config.corsOrigin) : String(config.corsOrigin))
+  // CORS_ORIGIN 支持逗号分隔的多个来源（例如走 nginx 的 80 与直连的 3001 并存）
+  const list = String(config.corsOrigin || '').split(',').map(s => s.trim()).filter(Boolean)
+  const allowAny = list.includes('*')
+  const allowed = allowAny || (origin && list.includes(origin))
+  const fallback = allowAny ? '*' : (list[0] || '*')
+  res.setHeader('access-control-allow-origin', allowAny ? (origin || '*') : (allowed ? origin : fallback))
   res.setHeader('vary', 'Origin')
   res.setHeader('access-control-allow-headers', 'Content-Type, Authorization, Accept')
   res.setHeader('access-control-expose-headers', 'Authorization')
@@ -28,8 +32,10 @@ export function getClientKey(req) {
   return req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown'
 }
 
-// 生产环境限流：auth 路由 10 次/分，其余 API 100 次/分（/api/health 豁免）
+// 限流：阈值见 config.rateLimit（默认 auth 60 次/分、其余 API 1200 次/分，/api/health 豁免）
+// 可用 RATE_LIMIT_ENABLED=0 整体关闭
 export function applyRateLimit(req, res, normalizedPath) {
+  if (!config.rateLimit.enabled) return
   if (process.env.NODE_ENV !== 'production') return
   const clientKey = 'api:' + getClientKey(req)
   const isAuthRoute = normalizedPath.startsWith('/api/auth')

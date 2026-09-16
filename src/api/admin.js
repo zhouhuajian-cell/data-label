@@ -17,6 +17,11 @@ export function deleteUserApi(id) {
   return request('/users/' + id, { method: 'DELETE' })
 }
 
+// 管理员重置密码（被重置账号下次登录强制改密）
+export function resetUserPasswordApi(id, password) {
+  return request('/users/' + id + '/password', { method: 'PUT', body: { password } })
+}
+
 // ===== 系统日志 =====
 export function getLogsApi(params) {
   const query = new URLSearchParams()

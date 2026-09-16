@@ -1,6 +1,7 @@
 import { ApiError } from '../lib/http.js'
-import { auditLogs, projects, projectStats, tasks, taskItems, taskLogs, submissions, governedItems, governedDatasets } from '../repositories/data.js'
+import { auditLogs, projects, projectStats, tasks, taskItems, taskLogs, submissions, governedItems, governedDatasets, bills } from '../repositories/data.js'
 import { nowText } from '../lib/time.js'
+import { hasAnyRole, roleTypesOf } from '../lib/roles.js'
 
 const buyerRole = 1
 const qaRole = 2
@@ -10,14 +11,23 @@ const VALID_STATUSES = ['active', 'completed', 'paused', 'archived']
 const STATUS_LABELS = { active: '进行中', completed: '已完成', paused: '已暂停', archived: '已归档' }
 
 function requireBuyer(user) {
-  if (![buyerRole, qaRole, cleanerRole].includes(user.roleType)) {
+  if (!hasAnyRole(user, [buyerRole, qaRole, cleanerRole])) {
     throw new ApiError(403, 'FORBIDDEN', '只有甲方、质检或数据清洗角色可以执行该操作')
   }
 }
 
-// 查看项目（含供应商：仅能查看与自己任务相关的项目）
+// 建项目/改项目：供应商(3)同样允许 —— 供应商在项目管理页建项目并上传验收数据
+const PROJECT_EDITABLE_ROLES = [buyerRole, qaRole, cleanerRole, 3]
+
+function requireProjectEditor(user) {
+  if (!hasAnyRole(user, PROJECT_EDITABLE_ROLES)) {
+    throw new ApiError(403, 'FORBIDDEN', '无权创建或修改项目')
+  }
+}
+
+// 查看项目。供应商(3)也开放：结算是以项目为导向的，项目页是供应商上传验收数据的入口
 function canViewProjects(user) {
-  return [buyerRole, qaRole, cleanerRole].includes(user.roleType)
+  return hasAnyRole(user, [buyerRole, qaRole, cleanerRole, 3])
 }
 
 export function getProjectStats(user) {
@@ -38,11 +48,6 @@ export function updateProjectCount(user, body) {
 
 export function listProjects(user) {
   if (!canViewProjects(user)) throw new ApiError(403, 'FORBIDDEN', '无权查看项目')
-  if (user.roleType === 3) {
-    // 供应商仅看到自己承接任务的关联项目
-    const projIds = new Set(tasks.filter(t => t.supplierId === user.supplierId).map(t => t.projectId))
-    return projects.filter(p => projIds.has(p.id)).sort((a, b) => b.id - a.id)
-  }
   return projects.slice().sort((a, b) => b.id - a.id)
 }
 
@@ -53,8 +58,20 @@ export function getProjectDetail(user, projectId) {
   return { project }
 }
 
+// 结算确认单按项目结算：项目下拉对发起方与四级确认人开放（只读精简字段）
+const PROJECT_OPTION_ROLES = [1, 2, 3, 7, 13, 14, 15, 16]
+
+export function listProjectOptions(user) {
+  if (!hasAnyRole(user, PROJECT_OPTION_ROLES)) {
+    throw new ApiError(403, 'FORBIDDEN', '无权查看项目列表')
+  }
+  return projects.slice()
+    .sort((a, b) => b.id - a.id)
+    .map(p => ({ id: p.id, name: p.name, clientName: p.clientName, bizType: p.bizType, status: p.status }))
+}
+
 export function createProject(user, body) {
-  requireBuyer(user)
+  requireProjectEditor(user)
   const name = String(body.name || '').trim()
   const clientName = String(body.clientName || '').trim()
   const annotateType = String(body.annotateType || '').trim()
@@ -67,14 +84,13 @@ export function createProject(user, body) {
   const datasetId = body.datasetId ? Number(body.datasetId) : null
 
   if (!name) throw new ApiError(422, 'VALIDATION_ERROR', '请输入项目名称')
-  if (!annotateType) throw new ApiError(422, 'VALIDATION_ERROR', '请选择标注类型')
-  // 业务类型：数据闭环 / vslam（未选择时默认数据闭环）
-  const BIZ_TYPES = ['数据闭环', 'vslam']
-  if (bizType && !BIZ_TYPES.includes(bizType)) throw new ApiError(422, 'VALIDATION_ERROR', '业务类型必须为数据闭环或vslam')
+  // 数据类型（annotateType）：选填，也可自定义填写
+  // 业务类型（bizType）：选填，默认「标注」，也允许自定义
+  if (bizType.length > 32) throw new ApiError(422, 'VALIDATION_ERROR', '业务类型最多 32 个字')
 
   const project = {
     id: Math.max(...projects.map(p => p.id), 0) + 1,
-    name, clientName, annotateType, bizType: bizType || '数据闭环',
+    name, clientName, annotateType, bizType: bizType || '标注',
     sampleCount: Number.isFinite(sampleCount) && sampleCount > 0 ? sampleCount : 0,
     deadline: deadline || '-',
     status: 'active', description,
@@ -105,15 +121,14 @@ export function updateProjectStatus(user, projectId, body) {
 }
 
 export function updateProject(user, projectId, body) {
-  requireBuyer(user)
+  requireProjectEditor(user)
   const project = projects.find(p => p.id === projectId)
   if (!project) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
-  const updatable = ['name', 'clientName', 'annotateType', 'deadline', 'description', 'template', 'uploadPath']
+  const updatable = ['name', 'clientName', 'annotateType', 'bizType', 'deadline', 'description', 'template', 'uploadPath']
   for (const key of updatable) {
     if (body[key] !== undefined) project[key] = String(body[key]).trim()
   }
   if (!project.name) throw new ApiError(422, 'VALIDATION_ERROR', '项目名称不能为空')
-  if (!project.annotateType) throw new ApiError(422, 'VALIDATION_ERROR', '请选择标注类型')
   project.updatedAt = nowText()
   auditLogs.push({ action: 'project.update', actorId: user.id, projectId, at: nowText() })
   return project
@@ -137,7 +152,7 @@ export function importProjects(user, body) {
       id: maxId + imported + 1,
       name,
       clientName: String(row.clientName || row['客户名称'] || '').trim(),
-      annotateType: String(row.annotateType || row['标注类型'] || '2D拉框').trim(),
+      annotateType: String(row.annotateType || row['标注类型'] || '').trim(),
       sampleCount: Number(row.sampleCount || row['样本数量']) || 0,
       deadline: String(row.deadline || row['截止时间'] || '-').trim(),
       status: 'active',
@@ -155,9 +170,17 @@ export function importProjects(user, body) {
 }
 
 export function deleteProject(user, projectId) {
-  requireBuyer(user)
+  // 供应商也可删除项目（与建项目同权限）
+  requireProjectEditor(user)
   const idx = projects.findIndex(p => p.id === projectId)
   if (idx < 0) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
+
+  // 护栏：项目下已有结算单（已提交过）则不允许删除，否则结算单会失去项目归属，成本中心/项目报表断链
+  const attachedBills = bills.filter(b => b.projectId === projectId)
+  if (attachedBills.length) {
+    throw new ApiError(409, 'PROJECT_HAS_BILLS',
+      `该项目已提交过 ${attachedBills.length} 张结算单，不能删除；请先处理掉这些结算单再删项目`)
+  }
 
   // 级联删除项目下的所有任务及其明细、日志、交付记录
   const taskIdSet = new Set(tasks.filter(t => t.projectId === projectId).map(t => t.id))

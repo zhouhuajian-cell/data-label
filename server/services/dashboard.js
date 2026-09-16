@@ -5,7 +5,9 @@ const errLabel = v => (ERROR_TYPES.find(t => t.value === v) || {}).label || v
 
 export function getDashboardData(user) {
   const isVendor = [3, 4].includes(user.roleType)
-  const visibleTasks = isVendor ? tasks.filter(t => t.supplierId === user.supplierId) : tasks
+  const visibleTasks = isVendor
+    ? tasks.filter(t => String(t.supplierName || '').trim() === String(user.userName || '').trim())
+    : tasks
   const taskIds = new Set(visibleTasks.map(t => t.id))
   const items = taskItems.filter(i => taskIds.has(i.taskId))
 
@@ -69,7 +71,7 @@ export function getDashboardData(user) {
 
   // ---- 供应商 TL 视角：团队人效排行 ----
   if (isVendor) {
-    const supUsers = users.filter(u => u.supplierId === user.supplierId && u.roleType === 4)
+    const supUsers = users.filter(u => u.roleType === 4)
     data.teamPerf = supUsers.map(u => {
       const secs = workSessions.filter(w => w.userId === u.id).reduce((sum, w) => sum + w.seconds, 0)
       const submitted = items.filter(i => i.claimedBy === u.id && (i.submitCount || 0) > 0).length

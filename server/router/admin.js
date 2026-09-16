@@ -2,6 +2,7 @@
 import { config } from '../config.js'
 import { created, ok, readJson } from '../lib/http.js'
 import { listAuditLogs } from '../services/logs.js'
+import { tokenRoles } from '../lib/roles.js'
 import { getNotifications, markRead, markAllRead } from '../services/notifications.js'
 import { getWebhookConfig, setWebhookConfig, sendFeishu, pushProjectSummary } from '../services/feishu.js'
 
@@ -13,7 +14,8 @@ export async function adminRouter(ctx) {
 
   // ===== 用户管理 =====
   if (is('GET', '/api/users/me')) {
-    ok(res, { userName: user.userName, roleType: user.roleType, supplierId: user.supplierId }); return true
+    const { roleType, roleTypes } = tokenRoles(user)
+    ok(res, { userName: user.userName, roleType, roleTypes }); return true
   }
   if (is('GET', '/api/users')) {
     const { listUsers } = await import('../services/users.js')
@@ -32,6 +34,14 @@ export async function adminRouter(ctx) {
   if (userItem && req.method === 'DELETE') {
     const { deleteUser } = await import('../services/users.js')
     ok(res, deleteUser(user, Number(userItem[1]))); return true
+  }
+
+  // 管理员重置密码（被重置账号下次登录强制改密）
+  const userPwd = m(/^\/api\/users\/(\d+)\/password$/)
+  if (userPwd && req.method === 'PUT') {
+    const { adminResetPassword } = await import('../services/users.js')
+    const b = await body()
+    ok(res, adminResetPassword(user, Number(userPwd[1]), b.password || b.newPassword)); return true
   }
 
   // ===== 系统日志 =====

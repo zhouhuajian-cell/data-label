@@ -59,10 +59,13 @@ export async function request(path, options = {}) {
   if (!response.ok || payload.code !== 0) {
     const message = payload.message || `请求失败 (${response.status})`
     const error = new ApiError(response.status, payload.code || 'HTTP_ERROR', message, payload.details)
-    if (response.status === 401) {
-      ElMessage.error('登录态已失效，请重新登录')
-    } else {
-      ElMessage.error(message)
+    // silent：调用方自行处理错误（如可选数据），不弹全局提示
+    if (!options.silent) {
+      if (response.status === 401) {
+        ElMessage.error('登录态已失效，请重新登录')
+      } else {
+        ElMessage.error(message)
+      }
     }
     throw error
   }

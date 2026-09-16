@@ -4,6 +4,15 @@ export function getProjectsApi() {
   return request('/projects')
 }
 
+export function listSuppliersApi() {
+  return request('/suppliers')
+}
+
+// 结算确认单的项目下拉（对结算发起方与四级确认人开放）
+export function listProjectOptionsApi() {
+  return request('/projects/options')
+}
+
 export function createProjectApi(payload) {
   return request('/projects', { method: 'POST', body: payload })
 }

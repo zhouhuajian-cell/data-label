@@ -116,7 +116,7 @@ const paletteRef = ref(null)
 }
 .page-content {
   flex: 1;
-  padding: 24px 28px;
+  padding: var(--page-pad-y, 24px) var(--page-pad-x, 28px);
   overflow-y: auto;
 }
 </style>

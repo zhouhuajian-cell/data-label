@@ -1,7 +1,8 @@
-// 统一用户状态（业务角色 roleType 1-7，共用 token/userInfo）
+// 统一用户状态（账号可持多角色，userInfo.roleTypes 为全部角色，roleType 为主角色）
 import { defineStore } from 'pinia'
+import { roleTypesOf, hasRole, hasAnyRole } from '@/utils/constants'
 
-const DEFAULT_INFO = { userName: '', roleType: 1, supplierId: null }
+const DEFAULT_INFO = { userName: '', roleType: 1, roleTypes: [1], mustChangePassword: false }
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -11,9 +12,11 @@ export const useUserStore = defineStore('user', {
     pendingTaskCount: 0
   }),
   getters: {
-    isAdmin: (state) => state.userInfo.roleType === 1,
-    isQA: (state) => state.userInfo.roleType === 2,
-    isSupplier: (state) => state.userInfo.roleType === 3
+    roles: (state) => roleTypesOf(state.userInfo),
+    isAdmin: (state) => hasRole(state.userInfo, 1),
+    isQA: (state) => hasRole(state.userInfo, 2),
+    isSupplier: (state) => hasRole(state.userInfo, 3),
+    isInternal: (state) => hasAnyRole(state.userInfo, [1, 2, 6, 7, 13, 14, 15, 16])
   },
   actions: {
     setToken(val) {
@@ -22,13 +25,18 @@ export const useUserStore = defineStore('user', {
     },
     setLogin(payload) {
       this.token = payload.token
-      this.userInfo = payload.userInfo
+      this.setUserInfo(payload.userInfo)
       localStorage.setItem('token', payload.token)
-      localStorage.setItem('userInfo', JSON.stringify(payload.userInfo))
     },
     setUserInfo(info) {
-      this.userInfo = info
-      localStorage.setItem('userInfo', JSON.stringify(info))
+      const normalized = { ...DEFAULT_INFO, ...info }
+      normalized.roleTypes = roleTypesOf(normalized)
+      normalized.roleType = normalized.roleTypes[0]
+      this.userInfo = normalized
+      localStorage.setItem('userInfo', JSON.stringify(normalized))
+    },
+    markPasswordChanged() {
+      this.setUserInfo({ ...this.userInfo, mustChangePassword: false })
     },
     logout() {
       this.token = ''

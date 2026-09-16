@@ -9,3 +9,21 @@ server/data/db.json
 
 # 本地环境配置（含数据库密码，勿提交）
 .env
+
+# 迁移备份与临时文件（可能含历史数据/凭据）
+server/data/backup-*.json
+.env.bak*
+.env.*.local
+
+# 改造前本地备份（勿提交）
+.bak/
+
+# 部署产物与账号种子（含密码哈希，勿提交）
+deploy/.build/
+deploy/seed.json
+
+# 本地数据与运行产物（含账号哈希/附件，勿提交）
+server/data/
+uploads/
+.npm-cache/
+.ocr-tmp.png

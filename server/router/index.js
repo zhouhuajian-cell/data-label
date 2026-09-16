@@ -1,6 +1,6 @@
 // 路由分发器：聚合各业务路由模块
 //  - authRouter 无需鉴权（登录/健康检查）
-//  - 其余模块在鉴权后按 项目 → 任务 → 工作台 → 治理 → 管理 顺序尝试匹配
+//  - 其余模块在鉴权后按 项目 → 任务 → 工作台 → 治理 → 管理 → 验收结算 顺序尝试匹配
 import { ApiError } from '../lib/http.js'
 import { authRouter } from './auth.js'
 import { projectRouter } from './project.js'
@@ -8,6 +8,7 @@ import { taskRouter } from './task.js'
 import { workbenchRouter } from './workbench.js'
 import { governanceRouter } from './governance.js'
 import { adminRouter } from './admin.js'
+import { financeRouter } from './finance.js'
 
 export function createApiDispatcher(requireAuth) {
   return async function dispatch(req, res, url, pathname) {
@@ -19,6 +20,7 @@ export function createApiDispatcher(requireAuth) {
     if (await workbenchRouter(ctx)) return true
     if (await governanceRouter(ctx)) return true
     if (await adminRouter(ctx)) return true
+    if (await financeRouter(ctx)) return true
     return false
   }
 }

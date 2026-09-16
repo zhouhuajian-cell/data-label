@@ -7,6 +7,61 @@ import { loginByFeishuCode } from './auth.js'
 // Webhook 消息推送
 let pushEnabled = true
 
+// ===== 推送队列 =====
+// 飞书自定义机器人对同一 webhook 有频率限制（突发多条会被拒：too many request）。
+// 结算确认链一个动作可能同时触发多条提醒（提醒下一节点 + 回执提交人 + 末节点通知甲方），
+// 因此统一走串行队列 + 限速 + 失败退避重试，保证"每个环节的提醒"都能送达。
+const pushQueue = []
+let draining = false
+const MIN_PUSH_INTERVAL_MS = 1200
+const MAX_PUSH_RETRY = 2
+const RETRY_BACKOFF_MS = 2000
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+function isRateLimited(result) {
+  return !result?.sent && /too many request|rate.?limit|频率/i.test(JSON.stringify(result || {}))
+}
+
+// 入队推送：resolve 的是最终投递结果（可能因限流重试而延后）
+export function enqueueFeishu(title, content, targetUrls) {
+  return new Promise(resolve => {
+    pushQueue.push({ title, content, targetUrls, resolve, attempt: 0 })
+    drainPushQueue()
+  })
+}
+
+async function drainPushQueue() {
+  if (draining) return
+  draining = true
+  try {
+    while (pushQueue.length) {
+      const job = pushQueue.shift()
+      let result
+      try {
+        result = await sendFeishu(job.title, job.content, job.targetUrls)
+      } catch (e) {
+        result = { sent: false, reason: String(e.message || e) }
+      }
+      if (isRateLimited(result) && job.attempt < MAX_PUSH_RETRY) {
+        job.attempt++
+        pushQueue.unshift(job)
+        await sleep(RETRY_BACKOFF_MS * job.attempt)
+        continue
+      }
+      job.resolve(result)
+      if (result?.sent) await sleep(MIN_PUSH_INTERVAL_MS)
+    }
+  } finally {
+    draining = false
+  }
+}
+
+// 队列积压（运维排查用）
+export function feishuQueueSize() {
+  return pushQueue.length
+}
+
 export function getWebhookConfig(user) {
   if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅甲方PM可管理')
   return { webhooks: feishuConfig.webhooks, enabled: feishuConfig.enabled }

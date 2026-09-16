@@ -1,0 +1,54 @@
+[Unit]
+Description=Maxieye 数据协作平台 (data_label, Node + MySQL)
+Documentation=file:///opt/data_label/deploy/%E9%83%A8%E7%BD%B2%E8%AF%B4%E6%98%8E.md
+After=network.target mysql.service mariadb.service
+
+[Service]
+Type=simple
+# 与同机 data_mining(ad_mining.service, 8009) 完全隔离：独立目录/账号/端口/数据库
+User=data_label
+Group=data_label
+WorkingDirectory=/opt/data_label
+
+# 敏感配置（JWT_SECRET / DB_PASSWORD / CORS_ORIGIN）放这里，权限 600，勿进仓库
+EnvironmentFile=/opt/data_label/.env
+Environment=NODE_ENV=production
+
+# Node 路径由部署脚本按服务器实际情况替换
+ExecStart=/usr/bin/node server/index.js
+
+# 单进程原生 node:http，无框架；重启由 systemd 接管
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# 日志：journalctl -u data_label -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=data_label
+
+# 基础加固：除 uploads 外只读
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/data_label/uploads
+
+# ===== 与同机数据挖掘（ad_mining，吃 4GB 内存做模型推理）的资源隔离 =====
+# 目标：本平台再忙也不挤占对方；异常时优先牺牲自己
+# CPU 相对权重（数据挖掘默认 100，高负载时它优先）
+CPUWeight=50
+# 磁盘 IO 相对权重
+IOWeight=50
+# 内存软上限：超过开始回收，先自我压制
+MemoryHigh=800M
+# 内存硬上限：异常内存增长不会吃掉对方的内存
+MemoryMax=1536M
+# 内存吃紧时，系统优先结束本服务而不是数据挖掘
+OOMScoreAdjust=300
+# 调度优先级略低于默认
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

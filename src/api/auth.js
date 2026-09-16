@@ -33,5 +33,10 @@ export function scanFeishuQrApi(payload) {
 }
 
 export function getMeApi() {
-  return request('/users/me')
+  return request('/auth/me')
+}
+
+// 本人修改密码（需校验原密码）
+export function changePasswordApi(payload) {
+  return request('/auth/password', { method: 'PUT', body: payload })
 }

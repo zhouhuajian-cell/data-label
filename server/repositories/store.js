@@ -97,6 +97,8 @@ export async function loadStore() {
   if (mysqlResult.ok && !mysqlResult.empty) {
     applyToMemory(mysqlResult.collections)
     console.log(`已从 MySQL 加载数据（${KEYS.filter(k => mysqlResult.collections[k] !== undefined).length} 个集合）`)
+    const ignored = Object.keys(mysqlResult.collections).filter(k => !KEYS.includes(k))
+    if (ignored.length) console.warn(`忽略 ${ignored.length} 个非业务集合（不在 KEYS 内，可能是历史遗留）：${ignored.join(', ')}`)
     return true
   }
   const loaded = readFromFile()
