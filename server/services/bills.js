@@ -521,18 +521,30 @@ function notifySupplier(bill, title, content) {
 }
 
 // 确认链进度（列表与详情共用）：每个节点标记 已确认/当前待确认/被驳回
+// 当前轮的确认记录：新记录带 round；历史记录（无 round）用「最后一次驳回时间」推断——
+// 驳回之后的确认属于当前轮，之前的算上一轮。避免老单据重提后链路变空。
+function confirmsOfCurrentRound(bill) {
+  const round = bill.resubmitCount || 0
+  const rejects = bill.rejections || []
+  const lastRejectAt = rejects.length ? String(rejects[rejects.length - 1].at || '') : ''
+  return (bill.confirms || []).filter(c => {
+    if (typeof c.round === 'number') return c.round === round
+    return lastRejectAt && String(c.at || '') > lastRejectAt
+  })
+}
+
 function buildChain(bill) {
   const rejected = bill.status === 'REJECTED'
   const lastRejectStage = rejected
     ? ((bill.rejections || [])[bill.rejections.length - 1] || {}).stage ?? null
     : null
-  const round = bill.resubmitCount || 0
+  const currentConfirms = confirmsOfCurrentRound(bill)
   return BILL_STAGES.map((s, i) => ({
     key: s.key,
     label: s.label,
     short: s.short,
     // 只统计「当前轮」的确认记录：驳回重提后上一轮的通过不再算数
-    done: (bill.confirms || []).some(c => c.stageKey === s.key && (c.round || 0) === round),
+    done: currentConfirms.some(c => c.stageKey === s.key),
     active: !rejected && bill.status !== 'APPROVED' && bill.currentStage === i,
     error: rejected && lastRejectStage === i
   }))
@@ -545,7 +557,7 @@ function toListItem(user, bill) {
   const lastReject = (bill.rejections || [])[bill.rejections.length - 1] || null
   return {
     chain: buildChain(bill),
-    confirmedCount: confirms.filter(c => (c.round || 0) === (bill.resubmitCount || 0)).length,
+    confirmedCount: confirmsOfCurrentRound(bill).length,
     stageCount: stageCount(),
     // 财务核算（财务结算模块用）
     finance: bill.finance || null,
@@ -583,7 +595,7 @@ function toListItem(user, bill) {
     remark: bill.remark,
     createdByName: bill.createdByName, createdAt: bill.createdAt, updatedAt: bill.updatedAt,
     approvedAt: bill.approvedAt || null,
-    confirmCount: (bill.confirms || []).filter(c => (c.round || 0) === (bill.resubmitCount || 0)).length
+    confirmCount: confirmsOfCurrentRound(bill).length
   }
 }
 
@@ -670,7 +682,7 @@ export async function getBillDetail(user, id) {
     confirms: bill.confirms || [],
     rejections: bill.rejections || [],
     stages: BILL_STAGES.map(s => {
-      const rec = (bill.confirms || []).filter(c => c.stageKey === s.key && (c.round || 0) === (bill.resubmitCount || 0)).pop()
+      const rec = confirmsOfCurrentRound(bill).filter(c => c.stageKey === s.key).pop()
       const isActive = !!stage && stage.key === s.key
       // who：已确认 → 确认人姓名；当前环节 → 该处理的人；未到 → 空
       const who = rec ? rec.userName : (isActive ? currentHandlerOf(bill) : '')
@@ -1357,6 +1369,10 @@ export async function resubmitBill(user, id) {
   bill.currentStage = 0
   bill.resubmitCount = (bill.resubmitCount || 0) + 1
   bill.finance = null // 金额可能变化，旧核算作废
+  // 把上一轮确认记录显式标记为旧轮次（此后不再依赖时间推断）
+  for (const c of bill.confirms || []) {
+    if (typeof c.round !== 'number') c.round = (bill.resubmitCount || 1) - 1
+  }
   bill.status = deriveStatus(bill)
   bill.updatedAt = nowText()
   await saveBill(bill)
