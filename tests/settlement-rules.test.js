@@ -41,6 +41,7 @@ const makeBill = async (items, extra = {}) => {
   const bill = await createBill(supplierA, {
   projectId: PROJECT_ID,
   batchName: '规则批次-' + (++seq),
+  period: '2033-01',
   importMode: 'paste',
   attachments: [{ storedName: 'bills/fixture.csv', originalName: 'f.csv', size: 1 }],
   costCenters: [{ name: 'M57', ratio: 100 }],

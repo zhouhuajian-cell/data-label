@@ -64,6 +64,9 @@
           <!-- 统结对比（柏川提交后自动生成，财务查看） -->
           <template v-if="detail.comparison">
             <div class="sec-title">统结对比（同项目：其他供应商 vs 统结方提交）</div>
+            <div class="tip mb8">
+              对比口径：同项目{{ detail.comparison.period ? ' + 同结算周期 ' + detail.comparison.period : '（本单未填结算周期，按整个项目汇总）' }}
+            </div>
             <el-descriptions :column="descColumns" border size="small" class="mb16">
               <el-descriptions-item label="其他供应商合计" :span="descColumns">
                 ¥{{ formatMoney(detail.comparison.base) }}（{{ detail.comparison.supplierCount }} 家<span

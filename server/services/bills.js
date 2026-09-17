@@ -727,6 +727,10 @@ export async function createBill(user, body) {
   }
   const batchName = String(body.batchName || '').trim()
   if (!batchName) throw new ApiError(422, 'VALIDATION_ERROR', '请填写批次名称')
+  // 结算周期必填：统结对比按「同项目 + 同周期」汇总，周期为空会误把不同批次的单累积
+  if (!String(body.period || '').trim()) {
+    throw new ApiError(422, 'VALIDATION_ERROR', '请填写结算周期（统结对比按「同项目+同周期」汇总，必填）')
+  }
   const supplierName = resolveSupplierName(user, body)
   const project = resolveProject(body)
   const formula = validateFormula(body.formula)
@@ -955,7 +959,9 @@ function assertIncreaseWithinLimit(bill, user) {
 
 // 供应商确认金额合计（不含统结方账号自己的单）：统结方提交与财务二次确认的对比基准
 function supplierBaseAmount(bill) {
-  const scope = computeSupplierConfirmedTotal({ projectId: bill.projectId })
+  // 口径：同项目 + 同结算周期。只按项目汇总会把该供应商不同批次/不同周期的单一起加上，
+  // 与统结方「本期提交额」不可比（周期为空时退化为按项目汇总，界面上会标注）
+  const scope = computeSupplierConfirmedTotal({ projectId: bill.projectId, period: bill.period })
   const partyNames = new Set(users.filter(u => !u.disabled && hasRole(u, ROLE.SETTLEMENT))
     .map(u => String(u.userName || '').trim()))
   const suppliers = (scope.suppliers || []).filter(s => !partyNames.has(String(s.supplierName || '').trim()))
@@ -1067,6 +1073,7 @@ export function compareWithProject(bill, actor) {
     ratePercent,
     limitPercent,
     exceeded,
+    period: bill.period || '',
     supplierCount,
     suppliers: supplierNames,
     projectName: bill.projectName || '',
@@ -1205,6 +1212,7 @@ export async function confirmBill(user, id, body = {}) {
       totalQuantity: totals.totalQuantity,
       submittedTotal: totals.totalAmount,
       supplierTotal: base,
+      period: bill.period || '',
       supplierCount,
       billCount,
       suppliers: baseSupplierNames,
@@ -1263,6 +1271,7 @@ export async function confirmBill(user, id, body = {}) {
     }
     comparisonInfo = {
       base, submitted, difference, ratePercent, limitPercent, exceeded: false,
+      period: bill.period || '', projectId: bill.projectId || null,
       supplierCount, billCount, suppliers: supplierNames, projectName: bill.projectName || '',
       comparedAt: nowText(), comparedBy: user.userName
     }

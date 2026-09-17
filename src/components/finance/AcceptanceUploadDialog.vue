@@ -22,9 +22,10 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12" :md="8">
-            <el-form-item label="结算周期">
+            <el-form-item label="结算周期" required>
               <el-date-picker v-model="form.period" type="month" value-format="YYYY-MM" placeholder="选择月份" style="width:100%" />
             </el-form-item>
+        <div class="tip">统结对比按「同项目 + 同结算周期」汇总，必填</div>
           </el-col>
           <el-col :xs="24" :sm="12" :md="8">
             <el-form-item label="供应商">
@@ -414,6 +415,7 @@ async function onSubmit() {
   const projectId = props.project?.id || editProjectId.value
   if (!projectId) { ElMessage.warning('缺少项目信息，请在项目管理页上传'); return }
   if (!form.batchName.trim()) { ElMessage.warning('请填写批次名称'); return }
+  if (!String(form.period || '').trim()) { ElMessage.warning('请填写结算周期（统结对比按「同项目+同周期」汇总，必填）'); return }
   const invalid = rows.value.findIndex(r => !String(r.taskName || '').trim())
   if (rows.value.length && invalid >= 0) { ElMessage.warning(`第 ${invalid + 1} 行缺少项目`); return }
   if (!rows.value.length) { ElMessage.warning('请至少导入或添加一条验收数据'); return }

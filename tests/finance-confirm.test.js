@@ -50,6 +50,7 @@ async function makeBill(user = supplierA, items) {
     projectId: PROJECT_ID,
     batchName: '验收批次-' + (++seq),
     period: '2026-08',
+    period: '2026-08',
     remark: '',
     importMode: 'paste',
     sourceFileName: 'batch.csv',
@@ -189,7 +190,7 @@ test('金额计算：默认公式为 数量×单价；只有金额列时用公�
 
   // 表里只有金额列时，导入建议公式为「金额」，按金额结算
   const amountOnly = await createBill(supplierA, {
-    projectId: PROJECT_ID, batchName: '仅金额列', importMode: 'paste',
+    projectId: PROJECT_ID, batchName: '仅金额列', period: '2026-08', importMode: 'paste',
     costCenters: [{ name: 'M57', ratio: 100 }],
     attachments: [{ storedName: 'bills/fixture.csv', originalName: 'f.csv', size: 1 }],
     formula: '金额',
@@ -200,7 +201,7 @@ test('金额计算：默认公式为 数量×单价；只有金额列时用公�
 
   // 公式结算：数量 × 单价 × 系数
   const withCoef = await createBill(supplierA, {
-    projectId: PROJECT_ID, batchName: '带系数', importMode: 'paste',
+    projectId: PROJECT_ID, batchName: '带系数', period: '2026-08', importMode: 'paste',
     costCenters: [{ name: 'M57', ratio: 100 }],
     attachments: [{ storedName: 'bills/fixture.csv', originalName: 'f.csv', size: 1 }],
     formula: '数量*单价*系数', coefficient: 0.8,
@@ -212,7 +213,7 @@ test('金额计算：默认公式为 数量×单价；只有金额列时用公�
 
   // 非法公式直接拒绝，不落库
   await assert.rejects(() => createBill(supplierA, {
-    projectId: PROJECT_ID, batchName: '非法公式', items: [{ taskName: 'E', quantity: 1, unitPrice: 1 }],
+    projectId: PROJECT_ID, batchName: '非法公式', period: '2026-08', items: [{ taskName: 'E', quantity: 1, unitPrice: 1 }],
     formula: '数量*'
   }), err => err.code === 'FORMULA_INVALID')
 })
