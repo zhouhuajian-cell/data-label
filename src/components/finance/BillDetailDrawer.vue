@@ -176,8 +176,8 @@
             <el-table-column label="单价（RMB）" :width="w(104)">
               <template #default="s">{{ s.row.unitPrice || '-' }}</template>
             </el-table-column>
-            <el-table-column label="总金额（RMB）" :width="w(118)">
-              <template #default="s">{{ s.row.amount }}</template>
+            <el-table-column label="总金额（RMB）" prop="amount" :width="w(118)">
+              <template #default="s">{{ formatMoney(s.row.amount) }}</template>
             </el-table-column>
             <el-table-column v-if="itemHas('dataPath')" label="数据路径" prop="dataPath" min-width="128" show-overflow-tooltip />
             <el-table-column v-if="itemHas('remark')" label="备注" prop="remark" min-width="98" show-overflow-tooltip />
