@@ -524,11 +524,13 @@ function buildChain(bill) {
   const lastRejectStage = rejected
     ? ((bill.rejections || [])[bill.rejections.length - 1] || {}).stage ?? null
     : null
+  const round = bill.resubmitCount || 0
   return BILL_STAGES.map((s, i) => ({
     key: s.key,
     label: s.label,
     short: s.short,
-    done: (bill.confirms || []).some(c => c.stageKey === s.key),
+    // 只统计「当前轮」的确认记录：驳回重提后上一轮的通过不再算数
+    done: (bill.confirms || []).some(c => c.stageKey === s.key && (c.round || 0) === round),
     active: !rejected && bill.status !== 'APPROVED' && bill.currentStage === i,
     error: rejected && lastRejectStage === i
   }))
@@ -541,7 +543,7 @@ function toListItem(user, bill) {
   const lastReject = (bill.rejections || [])[bill.rejections.length - 1] || null
   return {
     chain: buildChain(bill),
-    confirmedCount: confirms.length,
+    confirmedCount: confirms.filter(c => (c.round || 0) === (bill.resubmitCount || 0)).length,
     stageCount: stageCount(),
     // 财务核算（财务结算模块用）
     finance: bill.finance || null,
@@ -579,7 +581,7 @@ function toListItem(user, bill) {
     remark: bill.remark,
     createdByName: bill.createdByName, createdAt: bill.createdAt, updatedAt: bill.updatedAt,
     approvedAt: bill.approvedAt || null,
-    confirmCount: (bill.confirms || []).length
+    confirmCount: (bill.confirms || []).filter(c => (c.round || 0) === (bill.resubmitCount || 0)).length
   }
 }
 
@@ -666,7 +668,7 @@ export async function getBillDetail(user, id) {
     confirms: bill.confirms || [],
     rejections: bill.rejections || [],
     stages: BILL_STAGES.map(s => {
-      const rec = (bill.confirms || []).filter(c => c.stageKey === s.key).pop()
+      const rec = (bill.confirms || []).filter(c => c.stageKey === s.key && (c.round || 0) === (bill.resubmitCount || 0)).pop()
       const isActive = !!stage && stage.key === s.key
       // who：已确认 → 确认人姓名；当前环节 → 该处理的人；未到 → 空
       const who = rec ? rec.userName : (isActive ? currentHandlerOf(bill) : '')
@@ -1281,6 +1283,8 @@ export async function confirmBill(user, id, body = {}) {
   bill.confirms.push({
     stage: stageIndex, stageKey: stage.key, stageLabel: stage.label,
     roleType: stage.roleType, userId: user.id, userName: user.userName,
+    // 轮次：供应商每重新提交一次就 +1；链路进度只认当前轮，避免上一轮的"已通过"残留
+    round: bill.resubmitCount || 0,
     action: 'APPROVE', comment, at: nowText(),
     ...(settlementInfo ? { settlement: settlementInfo } : {}),
     ...(comparisonInfo ? { comparison: comparisonInfo } : {})

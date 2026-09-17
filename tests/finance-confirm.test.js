@@ -398,6 +398,27 @@ test('驳回后改金额：成本中心跟随新金额，旧核算作废，重�
   assert.equal(after.resubmitCount, 1)
 })
 
+// ===== 驳回重提后，链路只认当前轮（上一轮的"已通过"不得残留）=====
+test('驳回重提后链路只认当前轮：上一轮的通过不再显示', async () => {
+  const bill = await makeAssignedBill()
+  await confirmBill(bizEngineer, bill.id, {})
+  await calculateBill(finance, bill.id, { deduction: 0, taxRate: 0 })
+  await confirmBill(finance, bill.id, {})
+  await confirmParty(bill)                       // 统结方提交 + 财务二次确认
+  const before = await getBillDetail(pm, bill.id)
+  assert.equal(before.stages.find(s => s.key === 'SETTLEMENT').done, true, '本轮统结方已提交')
+
+  // 负责人驳回 → 供应商修正后重新提交（新的一轮）
+  await rejectBill(leader, bill.id, { reason: '本期数据重新核对' })
+  const after = await resubmitBill(supplierA, bill.id)
+  assert.equal(after.status, 'PENDING_BIZ')
+  const chain = after.stages
+  assert.equal(chain.find(s => s.key === 'SETTLEMENT').done, false, '重提后不应再显示统结方已通过')
+  assert.equal(chain.find(s => s.key === 'FINANCE2').done, false, '重提后不应再显示财务二次确认已通过')
+  assert.equal(after.confirmedCount, 0, '当前轮已确认数为 0')
+  assert.ok(after.confirms.length >= 4, '历史确认记录仍保留，便于追溯')
+})
+
 // ===== 加急催办：催当前环节的处理人，10 分钟内不允许重复催 =====
 test('加急催办：催当前环节处理人；同一单 10 分钟内不可重复催', async () => {
   const { urgeBill } = await import('../server/services/bills.js')
