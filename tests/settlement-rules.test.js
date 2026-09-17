@@ -197,6 +197,24 @@ test('统一结算：统结方提交总金额增幅超 3.5% → 报警且提交�
   assert.throws(() => checkTotalSubmission(finance, { ...scope, submittedTotal: 'abc' }), err => err.status === 422)
 })
 
+// ===== 附件引用：白名单内的类型都可通过（Word/PDF 曾经被漏掉）=====
+test('附件引用：xlsx/csv/docx/pdf 都能建单，伪造引用被拒', async () => {
+  const { createBill: create } = await import('../server/services/bills.js')
+  const mk = (storedName) => create(supplierA, {
+    projectId: PROJECT_ID, batchName: '附件类型-' + storedName.split('.').pop(), period: '2034-01', importMode: 'excel',
+    costCenters: [{ name: '端到端项目', amount: 100 }],
+    attachments: [{ storedName, originalName: 'f.' + storedName.split('.').pop(), size: 1 }],
+    items: [{ taskName: 'T', quantity: 1, unitPrice: 100 }]
+  })
+  for (const name of ['bills/a1.docx', 'bills/a2.doc', 'bills/a3.pdf', 'bills/a4.xlsx', 'bills/a5.csv']) {
+    const bill = await mk(name)
+    assert.equal(bill.attachments[0].storedName, name, `${name} 应被接受`)
+  }
+  // 伪造/越权引用仍必须被拒
+  await assert.rejects(() => mk('bills/../../etc/passwd'), err => err.status === 422)
+  await assert.rejects(() => mk('bills/a6.exe'), err => err.status === 422)
+})
+
 // ===== 成本中心分摊与报表 =====
 test('成本中心：金额按占比分摊，末位吸收舍入差额，合计精确等于金额', async () => {
   const { allocateCostCenters, costCenterReport, createBill: create } = await import('../server/services/bills.js')

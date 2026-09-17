@@ -112,7 +112,8 @@ function ensureBillsUploadDir() {
 }
 
 // storedName 形如 bills/<ts>_<rand>.<ext>；下载时作为相对 uploads/ 的路径
-const STORED_NAME_RE = /^bills\/[A-Za-z0-9_\-]+\.(xlsx|xls|csv|txt|pdf|zip|rar|7z|png|jpg|jpeg)$/i
+// 附件引用校验：由上面的白名单生成，新增附件类型时只改 ATTACH_EXTS 一处
+const STORED_NAME_RE = new RegExp(`^bills/[A-Za-z0-9_-]+\.(${ATTACH_EXTS.join('|')})$`, 'i')
 
 export function saveBillAttachment(user, body = {}) {
   requireBillRoles(user)
