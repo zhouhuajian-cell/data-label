@@ -103,8 +103,9 @@ const round2 = (n) => roundPercent(n)
 // ===== 附件留存：产出明细表等原始文件 =====
 // 存到 uploads/bills/，下载复用通用路由 GET /api/files/download/<storedName>
 const billsUploadDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../uploads/bills')
-const ATTACH_MAX_BYTES = 20 * 1024 * 1024
-const ATTACH_EXTS = ['xlsx', 'xls', 'csv', 'txt', 'pdf', 'zip', 'rar', '7z', 'png', 'jpg', 'jpeg']
+const ATTACH_MAX_BYTES = 30 * 1024 * 1024
+// 附件类型：Excel/CSV、Word、PDF 以及压缩包与图片
+const ATTACH_EXTS = ['xlsx', 'xls', 'csv', 'txt', 'doc', 'docx', 'pdf', 'zip', 'rar', '7z', 'png', 'jpg', 'jpeg']
 
 function ensureBillsUploadDir() {
   if (!fs.existsSync(billsUploadDir)) fs.mkdirSync(billsUploadDir, { recursive: true })
@@ -125,7 +126,7 @@ export function saveBillAttachment(user, body = {}) {
   const buffer = Buffer.from(data, 'base64')
   if (!buffer.length) throw new ApiError(422, 'VALIDATION_ERROR', '文件内容为空')
   if (buffer.length > ATTACH_MAX_BYTES) {
-    throw new ApiError(422, 'VALIDATION_ERROR', `文件过大（${(buffer.length / 1024 / 1024).toFixed(1)}MB），上限 20MB`)
+    throw new ApiError(422, 'VALIDATION_ERROR', `文件过大（${(buffer.length / 1024 / 1024).toFixed(1)}MB），上限 30MB`)
   }
   ensureBillsUploadDir()
   const storedName = `bills/${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`

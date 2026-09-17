@@ -47,10 +47,10 @@
       <!-- 附件留存（独立入口）：明细数据附件，原样留存不解析 -->
       <div class="sec-title">
         附件（明细数据）
-        <span class="tip">原样留存，不解析；提交后可在单据详情下载</span>
+        <span class="tip">原样留存，不解析（支持 Excel/CSV、Word、PDF 及压缩包、图片）；提交后可在单据详情下载</span>
       </div>
       <div class="attach-box">
-        <input ref="attachInputRef" type="file" accept=".xlsx,.xls,.csv,.txt,.pdf,.zip,.rar,.7z,.png,.jpg,.jpeg" class="hidden-file" @change="onAttachChange">
+        <input ref="attachInputRef" type="file" accept=".xlsx,.xls,.csv,.txt,.doc,.docx,.pdf,.zip,.rar,.7z,.png,.jpg,.jpeg" class="hidden-file" @change="onAttachChange">
         <el-button plain size="small" :icon="Upload" :loading="attaching" @click="attachInputRef?.click()">上传附件</el-button>
         <el-tag v-for="a in attachments" :key="a.storedName" size="small" closable @close="removeAttachment(a.storedName)">
           {{ a.originalName }}
@@ -269,8 +269,8 @@ function removeAttachment(storedName) { attachments.value = attachments.value.fi
 async function onAttachChange(event) {
   const file = event.target.files?.[0]
   if (!file) return
-  if (file.size > 20 * 1024 * 1024) {
-    ElMessage.warning('文件过大（超过 20MB）')
+  if (file.size > 30 * 1024 * 1024) {
+    ElMessage.warning('文件过大（超过 30MB）')
     event.target.value = ''
     return
   }
