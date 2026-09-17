@@ -9,7 +9,7 @@
           <!-- 确认链进度 -->
           <el-steps :active="activeStep" :simple="isNarrow" align-center finish-status="success" class="mb16">
             <el-step title="供应商提交" :description="detail.createdByName" />
-            <el-step v-for="st in detail.stages" :key="st.key" :title="st.label" :description="st.who || ''" :status="stepStatus(st)" />
+            <el-step v-for="st in detail.stages" :key="st.key" :title="st.label" :description="stepDesc(st)" :status="stepStatus(st)" />
           </el-steps>
 
           <el-descriptions :column="descColumns" border size="small" class="mb16">
@@ -376,6 +376,13 @@ const activeStep = computed(() => {
   if (detail.value.status === 'APPROVED') return BILL_STAGES.length + 1
   return detail.value.currentStage + 1
 })
+
+// 步骤描述：被驳回的节点明确写"谁 已驳回"，其余显示处理人/确认人
+function stepDesc(st) {
+  if (!detail.value) return ''
+  if (detail.value.status === 'REJECTED' && st.error) return `${st.who || ''} 已驳回`.trim()
+  return st.who || ''
+}
 
 function stepStatus(st) {
   if (!detail.value) return 'wait'

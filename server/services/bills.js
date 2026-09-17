@@ -285,6 +285,8 @@ function handlerText(bill, stage) {
 }
 // 当前环节「该谁处理」的姓名（列表与步骤条用；待指派工程师时显示财务）
 function currentHandlerOf(bill) {
+  // 已驳回：整单退回供应商修正后重新提交，不显示原环节的处理人
+  if (bill.status === 'REJECTED') return '待供应商修正后重新提交'
   const stage = currentStage(bill)
   if (!stage) return ''
   if (stage.key === 'BIZ' && !bill.assigneeId) {
