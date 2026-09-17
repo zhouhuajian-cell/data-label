@@ -521,16 +521,12 @@ function notifySupplier(bill, title, content) {
 }
 
 // 确认链进度（列表与详情共用）：每个节点标记 已确认/当前待确认/被驳回
-// 当前轮的确认记录：新记录带 round；历史记录（无 round）用「最后一次驳回时间」推断——
-// 驳回之后的确认属于当前轮，之前的算上一轮。避免老单据重提后链路变空。
+// 当前轮的确认记录。
+// 新记录带 round（重提时会把上一轮的历史记录显式标记为旧轮次）→ 精确按轮次过滤；
+// 历史记录没有 round 字段，无法回溯归属，按「算当前轮」处理（否则老单据重提后链路会变空）。
 function confirmsOfCurrentRound(bill) {
   const round = bill.resubmitCount || 0
-  const rejects = bill.rejections || []
-  const lastRejectAt = rejects.length ? String(rejects[rejects.length - 1].at || '') : ''
-  return (bill.confirms || []).filter(c => {
-    if (typeof c.round === 'number') return c.round === round
-    return lastRejectAt && String(c.at || '') > lastRejectAt
-  })
+  return (bill.confirms || []).filter(c => typeof c.round !== 'number' || c.round === round)
 }
 
 function buildChain(bill) {
