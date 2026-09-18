@@ -90,7 +90,8 @@
                 <span class="ph-name">{{ selectedProject.name }}</span>
                 <el-tag :type="statusTag(selectedProject.status)">{{ statusMap[selectedProject.status] }}</el-tag>
               </div>
-              <el-descriptions :column="3" class="ph-desc" size="small">
+              <!-- 业务类型/标注类型/样本量/截止等属于数据生产域的字段：结算模式下无信息量，整块隐藏 -->
+              <el-descriptions v-if="showDataModule" :column="3" class="ph-desc" size="small">
                 <el-descriptions-item label="业务类型">{{ selectedProject.bizType || '数据闭环' }}</el-descriptions-item>
                 <el-descriptions-item label="标注类型">{{ selectedProject.annotateType }}</el-descriptions-item>
                 <el-descriptions-item label="样本量">{{ selectedProject.sampleCount?.toLocaleString() || 0 }}</el-descriptions-item>
