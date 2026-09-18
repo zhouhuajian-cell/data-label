@@ -52,7 +52,9 @@ export function updateProjectCount(user, body) {
 // 内部角色（管理员/确认链角色）不受限
 function projectVisibleTo(user, p) {
   if (!isSupplierOnly(user)) return true
-  if (Number(p.createdBy) === Number(user.id)) return true
+  // 有创建人字段：只认自己建的
+  if (p.createdBy !== undefined && p.createdBy !== null) return Number(p.createdBy) === Number(user.id)
+  // 历史项目缺创建人：项目里有自己名下的结算单才可见（避免看到别家项目）
   return bills.some(b => b.projectId === p.id && sameSupplier(b, user))
 }
 
@@ -114,6 +116,8 @@ export function createProject(user, body) {
     status: 'active', description,
     template, uploadPath,
     datasetId,
+    // 供应商项目隔离依赖创建人：必须记录
+    createdBy: user.id, createdByName: user.userName,
     createdAt: nowText(), updatedAt: nowText()
   }
   projects.push(project)
