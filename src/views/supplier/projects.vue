@@ -139,18 +139,24 @@
               </div>
             </div>
 
-            <!-- 全部用固定列宽：弹性列（min-width）会按内容各自扩张，总宽超出后必须拖动才能看全 -->
+            <!-- 全部用固定列宽：弹性列（min-width）会按内容各自扩张，总宽超出后必须拖动才能看全。
+                 右栏约 700px，装不下「进度链 + 当前环节」两列，故保留后者（含角色-姓名，
+                 与结算页口径一致），进度明细在「查看」弹窗内可见 -->
             <el-table :data="projectBills" border size="small">
               <el-table-column label="结算单号" prop="billNo" width="128" />
-              <el-table-column label="批次名称" prop="batchName" width="128" show-overflow-tooltip />
+              <el-table-column label="批次名称" prop="batchName" width="110" show-overflow-tooltip />
               <el-table-column label="供应商" prop="supplierName" width="92" show-overflow-tooltip />
-              <el-table-column label="金额(元)" width="106" align="right">
+              <el-table-column label="金额(元)" width="102" align="right">
                 <template #default="s"><span class="money">¥{{ formatMoney(s.row.totalAmount) }}</span></template>
               </el-table-column>
-              <!-- 进度列：7 个圆点 + 已完成计数，不悬停也能看懂进度到哪
-                   （右栏只有 ~700px，故不再单列「当前环节」，其信息由此列表达） -->
-              <el-table-column label="结算进度" width="176">
-                <template #default="s"><BillChainProgress :chain="s.row.chain" :status="s.row.status" labelled /></template>
+              <el-table-column label="当前环节" width="150">
+                <template #default="s">
+                  <div class="stage-cell">
+                    <span class="stage-tag" :class="`stage-tag--${getBillStatusType(s.row.status)}`"
+                      :title="getBillStatusText(s.row.status)">{{ getBillStatusText(s.row.status) }}</span>
+                    <div v-if="s.row.currentHandler" class="cell-sub" :title="s.row.currentHandler">{{ s.row.currentHandler }}</div>
+                  </div>
+                </template>
               </el-table-column>
               <el-table-column label="操作" width="68">
                 <template #default="s"><el-button text size="small" type="primary" @click="openProjectBill(s.row.id)">查看</el-button></template>
@@ -327,7 +333,6 @@ import { pushProjectSummaryApi } from '@/api/feishu'
 import { useDownload } from '@/composables/useDownload'
 import { getTaskStateText as getStateText, getTaskStateType as getStateType, REJECT_ERROR_TYPES, ITEM_STATUS_MAP, FEATURES, formatMoney, getBillStatusText, getBillStatusType, ROLE_TYPE, hasAnyRole, canAccessBills } from '@/utils/constants'
 import { listBillsApi, getBillStatsApi } from '@/api/finance'
-import BillChainProgress from '@/components/finance/BillChainProgress.vue'
 import AcceptanceUploadDialog from '@/components/finance/AcceptanceUploadDialog.vue'
 import BillDetailDrawer from '@/components/finance/BillDetailDrawer.vue'
 import CreateProjectWizard from './components/CreateProjectWizard.vue'
@@ -875,23 +880,26 @@ onUnmounted(() => {
 .ph-name { font-size: 18px; font-weight: 700; color: #303133; }
 .ph-desc { margin-bottom: 4px; }
 .ph-desc-text { font-size: 13px; color: #909399; margin-top: 8px; line-height: 1.6; }
-.ph-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-/* 表格状态标签：单行省略，避免换行把行高撑高、撑破列宽 */
-.stage-tag {
-  display: block;
-  max-width: 100%;
-  padding: 0 6px;
-  border-radius: 4px;
-  font-size: 12px;
-  line-height: 20px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  box-sizing: border-box;
-}
-.stage-tag--success { background: rgba(24, 160, 88, 0.12); color: #18a058; }
-.stage-tag--warning { background: rgba(230, 162, 60, 0.14); color: #b88230; }
-.stage-tag--danger { background: rgba(214, 69, 80, 0.12); color: #d64550; }
+.ph-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* 当前环节单元格：状态 + 「角色-姓名」两行，各自单行省略（限宽在列内，不折行撑高行高） */
+.stage-cell { width: 100%; min-width: 0; overflow: hidden; }
+.stage-cell .cell-sub { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #909399; }
+/* 表格状态标签：单行省略，避免换行把行高撑高、撑破列宽 */
+.stage-tag {
+  display: block;
+  max-width: 100%;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.stage-tag--success { background: rgba(24, 160, 88, 0.12); color: #18a058; }
+.stage-tag--warning { background: rgba(230, 162, 60, 0.14); color: #b88230; }
+.stage-tag--danger { background: rgba(214, 69, 80, 0.12); color: #d64550; }
 .stage-tag--info { background: rgba(144, 147, 153, 0.14); color: #73767a; }
 
 .task-panel :deep(.el-card__body) { padding: 12px 16px; }

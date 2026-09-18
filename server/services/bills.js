@@ -283,16 +283,21 @@ function handlerText(bill, stage) {
   const names = handlerNamesOf(bill, stage)
   return names.length ? `${roleNameOf(stage)}-${names.join('、')}` : roleNameOf(stage)
 }
-// 当前环节「该谁处理」的姓名（列表与步骤条用；待指派工程师时显示财务）
+// 当前环节「该谁处理」：返回「角色-姓名」（列表与步骤条共用，见 handlerText 同一口径）。
+// 已通过的单一律返回空，避免终态还显示"待某人处理"造成误解。
 function currentHandlerOf(bill) {
   // 已驳回：整单退回供应商修正后重新提交，不显示原环节的处理人
   if (bill.status === 'REJECTED') return '待供应商修正后重新提交'
   const stage = currentStage(bill)
   if (!stage) return ''
+  // 第一环节尚未指派工程师时：要么财务先指派，要么显示已指派的人
   if (stage.key === 'BIZ' && !bill.assigneeId) {
-    return users.filter(u => !u.disabled && hasRole(u, ROLE.FINANCE)).map(u => u.userName).join('、')
+    const fins = users.filter(u => !u.disabled && hasRole(u, ROLE.FINANCE)).map(u => u.userName)
+    return fins.length ? `${roleNameOf(stage)}-待指派（${fins.join('、')} 指定）` : `${roleNameOf(stage)}-待指派`
   }
-  return handlerNamesOf(bill, stage).join('、')
+  const names = handlerNamesOf(bill, stage)
+  const role = roleNameOf(stage)
+  return names.length ? `${role}-${names.join('、')}` : role
 }
 
 // 某角色的所有账号姓名（如 财务 / OA结算专员 / 统结方）
