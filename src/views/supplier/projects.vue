@@ -58,10 +58,10 @@
             <div class="pc-progress">
               <el-progress :percentage="projectProgress(proj.id)" :stroke-width="8"
                 :color="progressColor(projectProgress(proj.id))" />
-              <span class="pc-progress-text">{{ projectAcceptedCount[proj.id] || 0 }}/{{ projectTaskCount[proj.id] || 0 }} 已验收</span>
+              <span class="pc-progress-text">{{ projectStatText(proj.id) }}</span>
             </div>
             <div class="pc-footer">
-              <span class="pc-tasks"><el-icon><List /></el-icon>{{ projectTaskCount[proj.id] || 0 }} 任务</span>
+              <span class="pc-tasks"><el-icon><List /></el-icon>{{ projectFooterText(proj.id) }}</span>
               <el-tag v-if="projectOverdueCount(proj.id)" type="danger" size="small" effect="dark">
                 <el-icon><Warning /></el-icon> {{ projectOverdueCount(proj.id) }} 逾期
               </el-tag>
@@ -296,7 +296,7 @@
     <AcceptanceUploadDialog v-model="uploadVisible" :project="selectedProject" @submitted="onUploaded" />
 
     <!-- 结算单详情（项目页内查看，含明细与确认/驳回/重新提交） -->
-    <BillDetailDrawer v-model="detailVisible" :bill-id="detailBillId" @changed="loadProjectBills" />
+    <BillDetailDrawer v-model="detailVisible" :bill-id="detailBillId" @changed="refreshSettlement" />
 
     <!-- 新建项目向导 -->
     <CreateProjectWizard ref="wizardRef" @created="loadProjects" />
@@ -325,7 +325,7 @@ import { getTaskItemsApi, updateTaskItemApi, deleteTaskItemApi, batchUpdateTaskI
 import { pushProjectSummaryApi } from '@/api/feishu'
 import { useDownload } from '@/composables/useDownload'
 import { getTaskStateText as getStateText, getTaskStateType as getStateType, REJECT_ERROR_TYPES, ITEM_STATUS_MAP, FEATURES, formatMoney, getBillStatusText, getBillStatusType, ROLE_TYPE, hasAnyRole, canAccessBills } from '@/utils/constants'
-import { listBillsApi } from '@/api/finance'
+import { listBillsApi, getBillStatsApi } from '@/api/finance'
 import BillChainProgress from '@/components/finance/BillChainProgress.vue'
 import AcceptanceUploadDialog from '@/components/finance/AcceptanceUploadDialog.vue'
 import BillDetailDrawer from '@/components/finance/BillDetailDrawer.vue'
@@ -398,6 +398,33 @@ const statusMap = { active: '进行中', completed: '已完成', paused: '已暂
 const statusTag = (s) => ({ active: '', completed: 'success', paused: 'warning', archived: 'info' }[s] || '')
 const progressColor = (p) => (p >= 80 ? '#67c23a' : p >= 40 ? '#e6a23c' : '#409eff')
 
+// 全部可见项目的结算汇总（项目卡片用，口径与结算列表一致：金额取基础金额，已通过=流程全通过）
+const billStats = ref({ approvedAmount: 0, projects: [] })
+const billStatsMap = computed(() => {
+  const map = {}
+  for (const row of billStats.value.projects || []) map[String(row.projectId)] = row
+  return map
+})
+const cardBillStats = (projectId) => {
+  const r = billStatsMap.value[String(projectId)]
+  return {
+    total: r?.billCount || 0,
+    approved: r?.approvedCount || 0,
+    approvedAmount: r?.approvedAmount || 0,
+    pending: r?.pendingCount || 0,
+    rejected: r?.rejectedCount || 0
+  }
+}
+async function loadBillStats() {
+  try {
+    const { data } = await getBillStatsApi()
+    billStats.value = data || { approvedAmount: 0, projects: [] }
+  } catch {
+    // 无结算角色（如纯数据清洗）看不到结算统计：项目卡片退回任务口径，不报错
+    billStats.value = { approvedAmount: 0, projects: [] }
+  }
+}
+
 // 统计卡片
 const statCards = computed(() => {
   const active = projectList.value.filter(p => p.status === 'active').length
@@ -407,7 +434,10 @@ const statCards = computed(() => {
     { key: 'projects', val: projectList.value.length, label: '项目总数', color: '#409eff' },
     { key: 'active', val: active, label: '进行中', color: '#67c23a' },
     { key: 'completed', val: completed, label: '已完成', color: '#909399' },
-    { key: 'samples', val: totalSamples.toLocaleString(), label: '样本总量', color: '#e6a23c' }
+    // 数据生产域关闭时页面主线是结算：末位卡片改看「已结算金额」，与项目下的结算单口径一致
+    showDataModule
+      ? { key: 'samples', val: totalSamples.toLocaleString(), label: '样本总量', color: '#e6a23c' }
+      : { key: 'settled', val: '¥' + formatMoney(billStats.value.approvedAmount || 0), label: '已结算金额', color: '#e6a23c' }
   ]
 })
 
@@ -454,13 +484,19 @@ async function loadProjectBills() {
   } catch { projectBills.value = [] } finally { projectBillsLoading.value = false }
 }
 
+// 项目卡片 + 页内面板共用的刷新：结算单变化后同步卡片数字
+function refreshSettlement () {
+  loadProjectBills()
+  loadBillStats()
+}
+
 // 上传验收数据在项目页内以弹窗完成（统一入口）
 function openUploadDialog() {
   if (!selectedProject.value) { ElMessage.warning('请先选择左侧项目'); return }
   uploadVisible.value = true
 }
 function onUploaded() {
-  loadProjectBills()
+  refreshSettlement()
 }
 function goProjectBills() {
   router.push({ path: '/finance/bills', query: { projectId: selectedId.value } })
@@ -491,9 +527,30 @@ const stateChips = computed(() => {
   return order.filter(o => map[o.value]).map(o => ({ ...o, count: map[o.value] }))
 })
 
+// 进度：结算主线看「已通过结算单占比」，数据生产主线看「已验收任务占比」
 const projectProgress = (projectId) => {
+  if (!showDataModule) {
+    const s = cardBillStats(projectId)
+    return s.total ? Math.round(s.approved / s.total * 100) : 0
+  }
   const total = projectTaskCount[projectId] || 0
   return total ? Math.round((projectAcceptedCount[projectId] || 0) / total * 100) : 0
+}
+// 进度条右侧文字
+const projectStatText = (projectId) => {
+  if (showDataModule) return `${projectAcceptedCount[projectId] || 0}/${projectTaskCount[projectId] || 0} 已验收`
+  const s = cardBillStats(projectId)
+  if (!s.total) return '暂无结算单'
+  return `已通过 ${s.approved}/${s.total} 单 · ¥${formatMoney(s.approvedAmount)}`
+}
+// 卡片底部文字
+const projectFooterText = (projectId) => {
+  if (showDataModule) return `${projectTaskCount[projectId] || 0} 任务`
+  const s = cardBillStats(projectId)
+  const parts = [`${s.total} 单结算`]
+  if (s.pending) parts.push(`在途 ${s.pending}`)
+  if (s.rejected) parts.push(`驳回 ${s.rejected}`)
+  return parts.join(' · ')
 }
 const projectOverdueCount = (projectId) => projectOverdueCountMap[projectId] || 0
 const projectActiveCount = (projectId) => projectActiveCountMap[projectId] || 0
@@ -669,6 +726,7 @@ const loadProjects = async () => {
     }
   } finally {
     loading.value = false
+    loadBillStats()
     loadProjectBills()
   }
 }

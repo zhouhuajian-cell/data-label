@@ -1418,11 +1418,21 @@ export function billStats(user) {
     const key = b.projectId || 0
     const prow = projectMap[key] || (projectMap[key] = {
       projectId: b.projectId || null, projectName: b.projectName || '未归属项目', billCount: 0,
-      approvedAmount: 0, pendingAmount: 0, pendingCount: 0
+      approvedAmount: 0, pendingAmount: 0, pendingCount: 0,
+      // 项目卡片按「结算口径」展示，需要单数与应付金额（口径与列表一致）
+      approvedCount: 0, rejectedCount: 0, payableAmount: 0
     })
     prow.billCount++
-    if (b.status === 'APPROVED') prow.approvedAmount += b.totalAmount
-    else if (b.status !== 'REJECTED') { prow.pendingAmount += b.totalAmount; prow.pendingCount++ }
+    if (b.status === 'APPROVED') {
+      prow.approvedAmount += b.totalAmount
+      prow.approvedCount++
+      prow.payableAmount += Number(b.finance?.payableAmount ?? b.totalAmount)
+    } else if (b.status === 'REJECTED') {
+      prow.rejectedCount++
+    } else {
+      prow.pendingAmount += b.totalAmount
+      prow.pendingCount++
+    }
   })
 
   return {
@@ -1440,7 +1450,12 @@ export function billStats(user) {
     byStatus,
     amountByStatus,
     projects: Object.values(projectMap)
-      .map(r => ({ ...r, approvedAmount: roundMoney(r.approvedAmount), pendingAmount: roundMoney(r.pendingAmount) }))
+      .map(r => ({
+        ...r,
+        approvedAmount: roundMoney(r.approvedAmount),
+        pendingAmount: roundMoney(r.pendingAmount),
+        payableAmount: roundMoney(r.payableAmount)
+      }))
       .sort((a, b) => b.approvedAmount - a.approvedAmount),
     suppliers: Object.values(supplierMap)
       .map(r => ({ ...r, approvedAmount: roundMoney(r.approvedAmount), pendingAmount: roundMoney(r.pendingAmount) }))

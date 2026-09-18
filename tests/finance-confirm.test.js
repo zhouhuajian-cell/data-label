@@ -533,3 +533,25 @@ test('财务核算：仅「待财务确认」阶段可核算；重提后旧核�
   assert.equal(back.payableAmount, null)
   await assert.rejects(() => confirmBill(finance, bill.id, {}), err => err.code === 'FORBIDDEN')
 })
+
+// 项目卡片上的数字必须与「该项目下结算单」口径一致（此前卡片取任务数，结算类项目恒为 0，页面显示对不上）
+test('项目维度汇总与项目下的结算单一致：单数/已通过/金额/应付金额', async () => {
+  const bill = await makeAssignedBill()
+  await confirmBill(bizEngineer, bill.id, {})
+  await calculateBill(finance, bill.id, { deduction: 0, taxRate: 0 })
+  await confirmBill(finance, bill.id, {})
+  await confirmParty(bill, '统结提交')
+  await confirmBill(leader, bill.id, {})
+  await confirmBill(perception, bill.id, {})
+  const done = await confirmBill({ id: OA_ID, roleType: 18, roleTypes: [18], userName: '彭桂苹' }, bill.id, {})
+  assert.equal(done.status, 'APPROVED')
+
+  const list = listBills(pm, new URLSearchParams({ projectId: String(PROJECT_ID), pageSize: '100' })).items
+  const approvedBills = list.filter(b => b.status === 'APPROVED')
+  const row = billStats(pm).projects.find(p => p.projectId === PROJECT_ID)
+  assert.ok(row, '统计里应有该项目')
+  assert.equal(row.billCount, list.length)
+  assert.equal(row.approvedCount, approvedBills.length)
+  assert.equal(row.approvedAmount, Number(approvedBills.reduce((s, b) => s + b.totalAmount, 0).toFixed(2)))
+  assert.equal(row.payableAmount, Number(approvedBills.reduce((s, b) => s + (b.finance?.payableAmount ?? b.totalAmount), 0).toFixed(2)))
+})
