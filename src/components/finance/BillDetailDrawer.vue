@@ -279,6 +279,7 @@
 // 结算单列表页与项目管理页共用：供应商在项目页内即可查看自己单据的完整明细
 import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { confirmDeleteTwice, esc } from '@/utils/confirm'
 import { Bell } from '@element-plus/icons-vue'
 import { Download } from '@element-plus/icons-vue'
 import { BILL_STAGES, formatMoney, ROLE_TYPE, hasRole } from '@/utils/constants'
@@ -549,6 +550,15 @@ function centerSummaryRow({ columns, data }) {
 }
 
 async function onDelete() {
+  // 二级红色确认：结算单删除不可恢复，再确认一次防误删
+  try {
+    const approved = detail.value.status === 'APPROVED'
+    await confirmDeleteTwice({
+      title: '删除结算单',
+      first: `${approved ? '该单据<strong>已结算完成</strong>。' : ''}确认删除 ${esc(detail.value.billNo)}（¥${esc(formatMoney(detail.value.totalAmount))}）？`,
+      second: '删除后<strong>不可恢复</strong>：单据、验收明细、核算与确认记录都会一并清除。确定继续？'
+    })
+  } catch { return }
   try {
     await deleteBillApi(detail.value.id)
     ElMessage.success('已删除')

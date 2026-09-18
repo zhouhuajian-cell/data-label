@@ -314,6 +314,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { confirmDeleteTwice, esc } from '@/utils/confirm'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Search, Plus, Upload, Edit, Delete, ArrowDown, List, Warning, Promotion, Connection, Finished } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
@@ -625,6 +626,14 @@ async function handleExpand(row) {
 }
 
 const deleteProject = async (proj) => {
+  // 二级红色确认：防误删（第一次告知影响范围，第二次确认不可恢复）
+  try {
+    await confirmDeleteTwice({
+      title: '删除项目',
+      first: `确认删除项目「${esc(proj?.name || '')}」？<br/>该项目下的结算单会一并删除。`,
+      second: '删除后<strong>不可恢复</strong>：项目及其下所有结算单、明细记录都会从系统中清除。确定继续？'
+    })
+  } catch { return }
   const taskCount = projectTaskCount[proj.id] || 0
   try {
     await ElMessageBox.confirm(
