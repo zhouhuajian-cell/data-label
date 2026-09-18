@@ -2,6 +2,7 @@ import { ApiError } from '../lib/http.js'
 import { auditLogs, projects, projectStats, tasks, taskItems, taskLogs, submissions, governedItems, governedDatasets, bills } from '../repositories/data.js'
 import { nowText } from '../lib/time.js'
 import { hasAnyRole, hasRole, roleTypesOf } from '../lib/roles.js'
+import { isSupplierOnly, sameSupplier } from '../lib/bill-flow.js'
 import { deleteBillRow } from '../repositories/finance-db.js'
 
 const buyerRole = 1
@@ -47,15 +48,30 @@ export function updateProjectCount(user, body) {
   return { projectCount: projectStats.projectCount }
 }
 
+// 供应商数据隔离：供应商只能看到「自己建的」或「项目里有自己名下结算单」的项目；
+// 内部角色（管理员/确认链角色）不受限
+function projectVisibleTo(user, p) {
+  if (!isSupplierOnly(user)) return true
+  if (Number(p.createdBy) === Number(user.id)) return true
+  return bills.some(b => b.projectId === p.id && sameSupplier(b, user))
+}
+
+function assertProjectVisible(user, p) {
+  if (!projectVisibleTo(user, p)) {
+    throw new ApiError(403, 'PROJECT_FORBIDDEN', '无权访问其他供应商的项目')
+  }
+}
+
 export function listProjects(user) {
   if (!canViewProjects(user)) throw new ApiError(403, 'FORBIDDEN', '无权查看项目')
-  return projects.slice().sort((a, b) => b.id - a.id)
+  return projects.slice().filter(p => projectVisibleTo(user, p)).sort((a, b) => b.id - a.id)
 }
 
 export function getProjectDetail(user, projectId) {
   if (!canViewProjects(user)) throw new ApiError(403, 'FORBIDDEN', '无权查看项目')
   const project = projects.find(p => p.id === projectId)
   if (!project) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
+  assertProjectVisible(user, project)
   return { project }
 }
 
@@ -67,6 +83,7 @@ export function listProjectOptions(user) {
     throw new ApiError(403, 'FORBIDDEN', '无权查看项目列表')
   }
   return projects.slice()
+    .filter(p => projectVisibleTo(user, p))
     .sort((a, b) => b.id - a.id)
     .map(p => ({ id: p.id, name: p.name, clientName: p.clientName, bizType: p.bizType, status: p.status }))
 }
@@ -109,6 +126,7 @@ export function updateProjectStatus(user, projectId, body) {
   requireBuyer(user)
   const project = projects.find(p => p.id === projectId)
   if (!project) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
+  assertProjectVisible(user, project)
 
   const status = String(body.status || '').trim()
   if (!VALID_STATUSES.includes(status)) {
@@ -125,6 +143,7 @@ export function updateProject(user, projectId, body) {
   requireProjectEditor(user)
   const project = projects.find(p => p.id === projectId)
   if (!project) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
+  assertProjectVisible(user, project)
   const updatable = ['name', 'clientName', 'annotateType', 'bizType', 'deadline', 'description', 'template', 'uploadPath']
   for (const key of updatable) {
     if (body[key] !== undefined) project[key] = String(body[key]).trim()
@@ -175,6 +194,7 @@ export async function deleteProject(user, projectId) {
   requireProjectEditor(user)
   const idx = projects.findIndex(p => p.id === projectId)
   if (idx < 0) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
+  assertProjectVisible(user, projects[idx])
 
   // 护栏：项目下已有结算单则不允许删除，否则结算单会失去项目归属，成本中心/项目报表断链。
   // 管理员（role 1）可以强制删除，连同该项目下的结算单一起级联清除（用于清理误建数据）
@@ -220,6 +240,7 @@ export function splitProjectDataset(user, projectId, body) {
   requireBuyer(user)
   const project = projects.find(p => p.id === projectId)
   if (!project) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
+  assertProjectVisible(user, project)
   if (!project.datasetId) throw new ApiError(422, 'VALIDATION_ERROR', '该项目未绑定治理数据集，请先绑定')
 
   const itemsPerTask = Math.max(Number(body.itemsPerTask) || 10, 1)
@@ -287,6 +308,7 @@ export function archiveProject(user, projectId) {
   requireBuyer(user)
   const project = projects.find(p => p.id === projectId)
   if (!project) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
+  assertProjectVisible(user, project)
   if (project.status !== 'active') throw new ApiError(409, 'STATE_CONFLICT', '仅进行中的项目可结项')
 
   const projTasks = tasks.filter(t => t.projectId === projectId)
