@@ -48,7 +48,7 @@
         <div ref="pieRef" class="chart-box"></div>
       </el-card>
       <el-card shadow="never" class="chart-card">
-        <template #header><span class="card-title">按结算周期累积</span></template>
+        <template #header><span class="card-title">按供应商累积</span></template>
         <div ref="barRef" class="chart-box"></div>
       </el-card>
     </div>
@@ -161,18 +161,37 @@ function renderPie () {
   }, true)
 }
 
+// 按供应商维度的柱状图：每家一根柱子，堆叠展示「已结 / 未结」（两者之和即累计金额）
 function renderBar () {
   if (!barRef.value) return
   if (!barChart) barChart = echarts.init(barRef.value)
+  // 金额从大到小排列，条形更直观（suppliers 后端已按金额排序，这里不依赖顺序）
+  const rows = [...suppliers.value].sort((a, b) => (b.amount || 0) - (a.amount || 0))
+  const settled = rows.map(r => Number(r.settledAmount) || 0)
+  // 未结 = 累计 − 已结（在途与驳回都算未结，避免出现负数）
+  const unsettled = rows.map((r, i) => Math.max(0, (Number(r.amount) || 0) - settled[i]))
   barChart.setOption({
-    tooltip: { trigger: 'axis', valueFormatter: (v) => '¥' + formatMoney(v) },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (ps) => {
+        const i = ps[0].dataIndex
+        const total = (Number(rows[i].amount) || 0)
+        const lines = ps.map(p => `${p.marker}${p.seriesName}：¥${formatMoney(p.value)}`)
+        return `${rows[i].supplierName}<br/>${lines.join('<br/>')}<br/>合计：¥${formatMoney(total)}`
+      }
+    },
     legend: { bottom: 0 },
     grid: { left: 60, right: 20, top: 20, bottom: 50 },
-    xAxis: { type: 'category', data: periods.value.map(p => p.period), axisLabel: { fontSize: 11 } },
+    xAxis: {
+      type: 'category',
+      data: rows.map(r => r.supplierName),
+      axisLabel: { fontSize: 11, interval: 0, rotate: rows.length > 5 ? 30 : 0 }
+    },
     yAxis: { type: 'value', axisLabel: { formatter: (v) => (v >= 10000 ? (v / 10000) + '万' : v) } },
     series: [
-      { name: '累计金额', type: 'bar', data: periods.value.map(p => p.amount), itemStyle: { color: '#409eff' } },
-      { name: '已结算', type: 'bar', data: periods.value.map(p => p.settledAmount), itemStyle: { color: '#67c23a' } }
+      { name: '已结', type: 'bar', stack: 'amount', data: settled, itemStyle: { color: '#67c23a' }, barMaxWidth: 48 },
+      { name: '未结', type: 'bar', stack: 'amount', data: unsettled, itemStyle: { color: '#e6a23c' }, barMaxWidth: 48 }
     ]
   }, true)
 }
