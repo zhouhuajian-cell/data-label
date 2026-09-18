@@ -418,7 +418,7 @@ function summaryRow({ columns, data }) {
 const isSettlementStage = computed(() => detail.value?.status === 'PENDING_SETTLEMENT' && !!detail.value?.permissions?.canConfirm)
 const supplierTotal = computed(() => {
   const s = detail.value?.supplierConfirmedTotal || {}
-  return { total: Number(s.supplierTotal) || 0, supplierCount: s.supplierCount || 0, billCount: s.billCount || 0 }
+  return { total: Number(s.supplierTotal) || 0, supplierCount: s.supplierCount || 0, billCount: s.billCount || 0, suppliers: s.suppliers || [] }
 })
 const limitPercent = computed(() => detail.value?.settlement?.limitPercent ?? detail.value?.increaseCheck?.limitPercent ?? 3.5)
 // 明细里只有该项确实有数据时才显示该列（导入表没有的字段不再出现一列空值）
