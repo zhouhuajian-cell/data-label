@@ -283,21 +283,22 @@ function handlerText(bill, stage) {
   const names = handlerNamesOf(bill, stage)
   return names.length ? `${roleNameOf(stage)}-${names.join('、')}` : roleNameOf(stage)
 }
-// 当前环节「该谁处理」：返回「角色-姓名」（列表与步骤条共用，见 handlerText 同一口径）。
-// 已通过的单一律返回空，避免终态还显示"待某人处理"造成误解。
+// 当前环节「该谁处理」：一行文案「待XX确认-姓名」（如「待算法确认-马成男」），
+// 前缀取该环节的待办状态名，与列表状态列同一套词，读起来是一句话。
+// 已通过的单据返回空，避免终态还显示"待某人处理"造成误解。
 function currentHandlerOf(bill) {
   // 已驳回：整单退回供应商修正后重新提交，不显示原环节的处理人
   if (bill.status === 'REJECTED') return '待供应商修正后重新提交'
   const stage = currentStage(bill)
   if (!stage) return ''
-  // 第一环节尚未指派工程师时：要么财务先指派，要么显示已指派的人
+  const pendingLabel = BILL_STATUS[stage.status] || `待${roleNameOf(stage)}确认`
+  // 第一环节尚未指派工程师时：提示由财务指定
   if (stage.key === 'BIZ' && !bill.assigneeId) {
     const fins = users.filter(u => !u.disabled && hasRole(u, ROLE.FINANCE)).map(u => u.userName)
-    return fins.length ? `${roleNameOf(stage)}-待指派（${fins.join('、')} 指定）` : `${roleNameOf(stage)}-待指派`
+    return fins.length ? `${pendingLabel}-待指派（${fins.join('、')} 指定）` : `${pendingLabel}-待指派`
   }
   const names = handlerNamesOf(bill, stage)
-  const role = roleNameOf(stage)
-  return names.length ? `${role}-${names.join('、')}` : role
+  return names.length ? `${pendingLabel}-${names.join('、')}` : pendingLabel
 }
 
 // 某角色的所有账号姓名（如 财务 / OA结算专员 / 统结方）

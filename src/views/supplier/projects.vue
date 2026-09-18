@@ -149,13 +149,13 @@
               <el-table-column label="金额(元)" width="102" align="right">
                 <template #default="s"><span class="money">¥{{ formatMoney(s.row.totalAmount) }}</span></template>
               </el-table-column>
-              <el-table-column label="当前环节" width="150">
+              <!-- 当前环节：一行「待XX确认-姓名」（如「待算法确认-马成男」） -->
+              <el-table-column label="当前环节" width="176">
                 <template #default="s">
-                  <div class="stage-cell">
-                    <span class="stage-tag" :class="`stage-tag--${getBillStatusType(s.row.status)}`"
-                      :title="getBillStatusText(s.row.status)">{{ getBillStatusText(s.row.status) }}</span>
-                    <div v-if="s.row.currentHandler" class="cell-sub" :title="s.row.currentHandler">{{ s.row.currentHandler }}</div>
-                  </div>
+                  <span class="stage-text" :class="`stage-text--${getBillStatusType(s.row.status)}`"
+                    :title="s.row.currentHandler || getBillStatusText(s.row.status)">
+                    {{ s.row.currentHandler || getBillStatusText(s.row.status) }}
+                  </span>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="68">
@@ -881,12 +881,9 @@ onUnmounted(() => {
 .ph-desc { margin-bottom: 4px; }
 .ph-desc-text { font-size: 13px; color: #909399; margin-top: 8px; line-height: 1.6; }
 .ph-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-/* 当前环节单元格：状态 + 「角色-姓名」两行，各自单行省略（限宽在列内，不折行撑高行高） */
-.stage-cell { width: 100%; min-width: 0; overflow: hidden; }
-.stage-cell .cell-sub { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #909399; }
-/* 表格状态标签：单行省略，避免换行把行高撑高、撑破列宽 */
-.stage-tag {
-  display: block;
+/* 当前环节：单行「待XX确认-姓名」，超长省略（换行会把行高撑成两倍） */
+.stage-text {
+  display: inline-block;
   max-width: 100%;
   padding: 0 6px;
   border-radius: 4px;
@@ -897,10 +894,10 @@ onUnmounted(() => {
   white-space: nowrap;
   box-sizing: border-box;
 }
-.stage-tag--success { background: rgba(24, 160, 88, 0.12); color: #18a058; }
-.stage-tag--warning { background: rgba(230, 162, 60, 0.14); color: #b88230; }
-.stage-tag--danger { background: rgba(214, 69, 80, 0.12); color: #d64550; }
-.stage-tag--info { background: rgba(144, 147, 153, 0.14); color: #73767a; }
+.stage-text--success { background: rgba(24, 160, 88, 0.12); color: #18a058; }
+.stage-text--warning { background: rgba(230, 162, 60, 0.14); color: #b88230; }
+.stage-text--danger { background: rgba(214, 69, 80, 0.12); color: #d64550; }
+.stage-text--info { background: rgba(144, 147, 153, 0.14); color: #73767a; }
 
 .task-panel :deep(.el-card__body) { padding: 12px 16px; }
 .settle-summary {

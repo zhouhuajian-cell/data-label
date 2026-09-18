@@ -64,7 +64,7 @@
         <el-table-column label="结算单号" prop="billNo" width="128" />
         <!-- 项目：弹性列，宽度由 el-table 按剩余空间分配（空间不足时自动压缩并截断） -->
         <el-table-column label="项目" prop="projectName" min-width="140" show-overflow-tooltip />
-        <el-table-column label="批次名称" prop="batchName" min-width="82" show-overflow-tooltip />
+        <el-table-column label="批次名称" prop="batchName" min-width="72" show-overflow-tooltip />
         <el-table-column label="供应商" prop="supplierName" width="86" show-overflow-tooltip />
         <el-table-column label="金额(元)" width="102" align="right">
           <template #default="s"><span class="money">¥{{ formatMoney(s.row.totalAmount) }}</span></template>
@@ -73,14 +73,11 @@
         <el-table-column label="结算进度" width="176">
           <template #default="s"><BillChainProgress :chain="s.row.chain" :status="s.row.status" labelled /></template>
         </el-table-column>
-        <!-- 当前环节：状态 + 该环节的「角色-姓名」，两行展示；列宽弹性铺满右侧剩余空间 -->
-        <el-table-column label="当前环节" min-width="160" class-name="cell-nowrap">
+        <!-- 当前环节：一行「待XX确认-姓名」（如「待算法确认-马成男」）；列宽弹性铺满右侧剩余空间 -->
+        <el-table-column label="当前环节" min-width="176" class-name="cell-nowrap">
           <template #default="s">
-            <div class="stage-cell">
-              <span class="stage-tag" :class="`stage-tag--${getBillStatusType(s.row.status)}`"
-                :title="getBillStatusText(s.row.status)">{{ getBillStatusText(s.row.status) }}</span>
-              <div v-if="s.row.currentHandler" class="cell-sub" :title="s.row.currentHandler">{{ s.row.currentHandler }}</div>
-            </div>
+            <span class="stage-text" :class="`stage-text--${getBillStatusType(s.row.status)}`"
+              :title="stageLine(s.row)">{{ stageLine(s.row) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="96">
@@ -234,6 +231,13 @@ async function loadList() {
 
 function reload() { filters.page = 1; loadList() }
 
+// 「当前环节」一行文案：后端 currentHandler 已是「待XX确认-姓名」，直接用它；
+// 没有处理人（已通过/已驳回）时退回状态文案，保证列里始终有内容
+function stageLine (row) {
+  return row.currentHandler || getBillStatusText(row.status)
+}
+
+
 
 function onChip(chip) {
   activeChip.value = chip.key
@@ -377,17 +381,8 @@ function syncProjectOptionsFromQuery(projectId) {
 /* 表格里的两行紧凑排版：主信息 + 次要信息，避免长文本撑宽列 */
 .cell-strong { color: var(--text-1, #303133); line-height: 1.5; }
 .cell-sub { color: var(--text-3, #909399); font-size: 12px; line-height: 1.5; }
-/* 当前环节列：状态标签 + 处理人各自单行，超长用省略号（hover 有原生 title）
-   el-table 的 .cell 默认允许换行，必须把 nowrap 落到 .cell 上，否则内层 div 设了也没用 */
-.cell-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 当前环节单元格：宽度锁死在列宽内，子项一律单行省略
-   （el-table 的 .cell 默认会因内容变宽而撑破列宽，导致压住相邻列） */
-/* 当前环节单元格：限宽在列内，标签与处理人各自单行省略（不折行、不撑破列宽） */
-.stage-cell { width: 100%; min-width: 0; overflow: hidden; }
-.stage-cell .cell-sub { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stage-cell .stage-tag { display: block; }
-/* 单行状态标签：占满列宽即省略，绝不换行（换行会把整行撑高） */
-.stage-tag {
+/* 当前环节：单行「待XX确认-姓名」，超长省略（换行会把行高撑成两倍） */
+.stage-text {
   display: inline-block;
   max-width: 100%;
   padding: 0 6px;
@@ -399,10 +394,10 @@ function syncProjectOptionsFromQuery(projectId) {
   white-space: nowrap;
   box-sizing: border-box;
 }
-.stage-tag--success { background: rgba(24, 160, 88, 0.12); color: #18a058; }
-.stage-tag--warning { background: rgba(230, 162, 60, 0.14); color: #b88230; }
-.stage-tag--danger { background: rgba(214, 69, 80, 0.12); color: #d64550; }
-.stage-tag--info { background: rgba(144, 147, 153, 0.14); color: #73767a; }
+.stage-text--success { background: rgba(24, 160, 88, 0.12); color: #18a058; }
+.stage-text--warning { background: rgba(230, 162, 60, 0.14); color: #b88230; }
+.stage-text--danger { background: rgba(214, 69, 80, 0.12); color: #d64550; }
+.stage-text--info { background: rgba(144, 147, 153, 0.14); color: #73767a; }
 /* 操作列：按钮排一行，不因换行把行高撑到两倍 */
 .op-cell { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
 .op-cell :deep(.el-button) { padding: 2px 4px; }
