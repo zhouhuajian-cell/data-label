@@ -111,9 +111,13 @@ test('正向流转：上传 → 业务工程师 → 财务 → 统结方提交 �
   assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_OA')
   const done = await confirmBill({ id: OA_ID, roleType: 18, roleTypes: [18], userName: '彭桂苹' }, bill.id, { comment: 'OA 已录入' })
   assert.equal(done.status, 'APPROVED')
-  assert.equal(done.confirms.length, 7)
+  // 7 个确认节点 + 供应商提交这一条起点记录
+  assert.equal(done.confirms.length, 8)
   assert.ok(done.approvedAt)
-  assert.deepEqual(done.confirms.map(c => c.stageKey), ['BIZ', 'FINANCE', 'SETTLEMENT', 'FINANCE2', 'LEADER', 'PERCEPTION', 'OA'])
+  assert.deepEqual(done.confirms.map(c => c.stageKey),
+    ['SUPPLIER', 'BIZ', 'FINANCE', 'SETTLEMENT', 'FINANCE2', 'LEADER', 'PERCEPTION', 'OA'])
+  assert.equal(done.confirms[0].stageLabel, '供应商提交')
+  assert.equal(done.confirms[0].userName, supplierA.userName)
 })
 
 test('以项目为导向：缺项目 / 项目不存在 均拒绝；可按项目筛选与汇总', async () => {
@@ -171,8 +175,12 @@ test('驳回：原因必填，驳回后供应商修正并重新提交，确认�
   assert.equal(resubmitted.status, 'PENDING_BIZ')
   assert.equal(resubmitted.currentStage, 0)
   assert.equal(resubmitted.resubmitCount, 1)
-  // 历史确认记录保留，不覆盖
-  assert.equal(resubmitted.confirms.length, 1)
+  // 历史确认记录保留，不覆盖（另加供应商提交/重新提交两条记录）
+  assert.equal(resubmitted.confirms.filter(c => c.action !== 'SUBMIT').length, 1)
+  const submits = resubmitted.confirms.filter(c => c.action === 'SUBMIT')
+  assert.equal(submits.length, 2, '首次提交 + 重新提交各一条')
+  assert.deepEqual(submits.map(c => c.stageLabel), ['供应商提交', '供应商重新提交'])
+  assert.equal(submits[1].userName, supplierA.userName)
 })
 
 test('编辑/删除限制：已有确认记录后不可修改或删除', async () => {
@@ -260,7 +268,8 @@ test('多角色环环相扣：同持业务工程师与财务的账号可依次�
   const after = await getBillDetail(pm, bill.id)
   assert.equal(after.status, 'PENDING_SETTLEMENT', '财务后进入统结方节点')
   // 记录里保存的是"以哪个角色动作"
-  assert.deepEqual(after.confirms.map(c => c.roleType), [13, 14])
+  assert.equal(after.confirms[0].stageKey, 'SUPPLIER')
+  assert.deepEqual(after.confirms.slice(1).map(c => c.roleType), [13, 14])
   // 不含统结方角色 → 不能继续推进
   await assert.rejects(() => confirmBill(multi, bill.id, {}), err => err.code === 'FORBIDDEN')
 })
@@ -554,4 +563,39 @@ test('项目维度汇总与项目下的结算单一致：单数/已通过/金额
   assert.equal(row.approvedCount, approvedBills.length)
   assert.equal(row.approvedAmount, Number(approvedBills.reduce((s, b) => s + b.totalAmount, 0).toFixed(2)))
   assert.equal(row.payableAmount, Number(approvedBills.reduce((s, b) => s + (b.finance?.payableAmount ?? b.totalAmount), 0).toFixed(2)))
+})
+
+// 明细「确认记录」要能看到供应商提交这一环（此前只有工程师之后的环节）
+test('确认记录含供应商提交：提交人/单数金额，重提再记一条', async () => {
+  const bill = await makeAssignedBill()
+  const d1 = await getBillDetail(pm, bill.id)
+  const first = d1.confirms.filter(c => c.stageKey === 'SUPPLIER')
+  assert.equal(first.length, 1)
+  assert.equal(first[0].stageLabel, '供应商提交')
+  assert.equal(first[0].userName, supplierA.userName)
+  assert.equal(first[0].itemCount, 2)
+  assert.equal(first[0].totalAmount, 1500)
+  assert.equal(first[0].resubmitCount, 0)
+
+  await confirmBill(bizEngineer, bill.id, {})
+  await rejectBill(finance, bill.id, { reason: '批次名称需更正' })
+  await resubmitBill(supplierA, bill.id)
+
+  const submits = (await getBillDetail(pm, bill.id)).confirms.filter(c => c.stageKey === 'SUPPLIER')
+  assert.equal(submits.length, 2)
+  assert.equal(submits[1].stageLabel, '供应商重新提交')
+  assert.equal(submits[1].resubmitCount, 1)
+  assert.ok(submits[0].at && submits[1].at, '每条都要有提交时间')
+
+  // 再走一轮驳回重提：每次提交各留一条，互不覆盖
+  await confirmBill(bizEngineer, bill.id, {})
+  await rejectBill(finance, bill.id, { reason: '金额需再核' })
+  await resubmitBill(supplierA, bill.id)
+  const three = (await getBillDetail(pm, bill.id)).confirms.filter(c => c.stageKey === 'SUPPLIER')
+  assert.deepEqual(three.map(c => c.resubmitCount), [0, 1, 2])
+  assert.deepEqual(three.map(c => c.stageLabel), ['供应商提交', '供应商重新提交', '供应商重新提交'])
+
+  // 供应商只看得到自己的提交记录
+  const asSupplier = await getBillDetail(supplierA, bill.id)
+  assert.equal(asSupplier.confirms[0].stageKey, 'SUPPLIER')
 })

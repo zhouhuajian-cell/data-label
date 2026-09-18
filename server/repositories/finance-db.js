@@ -123,6 +123,7 @@ async function ensureColumns(p) {
     [BILLS, 'assigned_at', "DATETIME NULL"],
     [BILLS, 'comparison', "JSON NULL"],
     [BILLS, 'urges', "JSON NULL"],
+    [BILLS, 'supplier_submits', "JSON NULL"],
     [ITEMS, 'unit', "VARCHAR(16) NULL"]
   ]
   for (const [table, col, def] of wanted) {
@@ -191,7 +192,8 @@ function rowToBill(r) {
     createdBy: r.created_by === null ? null : Number(r.created_by), createdByName: r.created_by_name || '',
     createdAt: r.created_at || '', updatedAt: r.updated_at || '', approvedAt: r.approved_at || null,
     comparison: parseJson(r.comparison),
-    urges: parseJson(r.urges) || []
+    urges: parseJson(r.urges) || [],
+    supplierSubmits: parseJson(r.supplier_submits) || []
   }
 }
 
@@ -224,7 +226,8 @@ function billParams(b) {
     json(b.finance), json(b.confirms || []), json(b.rejections || []),
     b.createdBy ?? null, b.createdByName ?? null, b.createdAt ?? null, b.updatedAt ?? null, b.approvedAt ?? null,
     json(b.comparison),
-    json(b.urges || [])
+    json(b.urges || []),
+    json(b.supplierSubmits || [])
   ]
 }
 
@@ -243,8 +246,8 @@ export async function saveBill(bill) {
        formula, coefficient, cost_centers, attachments,
        assignee_id, assignee_name, assigned_by, assigned_at,
        source_file_name, import_mode, remark, finance, confirms, rejections,
-       created_by, created_by_name, created_at, updated_at, approved_at, comparison, urges)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       created_by, created_by_name, created_at, updated_at, approved_at, comparison, urges, supplier_submits)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON DUPLICATE KEY UPDATE
        project_id=VALUES(project_id), project_name=VALUES(project_name), supplier_id=VALUES(supplier_id),
        supplier_name=VALUES(supplier_name), batch_name=VALUES(batch_name), period=VALUES(period),
@@ -257,7 +260,7 @@ export async function saveBill(bill) {
        source_file_name=VALUES(source_file_name), import_mode=VALUES(import_mode), remark=VALUES(remark),
        finance=VALUES(finance), confirms=VALUES(confirms), rejections=VALUES(rejections),
        updated_at=VALUES(updated_at), approved_at=VALUES(approved_at), comparison=VALUES(comparison),
-       urges=VALUES(urges)`,
+       urges=VALUES(urges), supplier_submits=VALUES(supplier_submits)`,
     billParams(bill)
   )
 }

@@ -325,6 +325,15 @@ function notifyAssignNeeded(bill) {
 export async function repairBillStages() {
   let fixed = 0
   for (const bill of bills) {
+    // 已完成/历史单据：补齐「供应商提交」记录（新字段，老单据没有）
+    if (!Array.isArray(bill.supplierSubmits) || !bill.supplierSubmits.length) {
+      bill.supplierSubmits = supplierSubmitsOf({ ...bill, supplierSubmits: null }).map(r => ({
+        stageKey: 'SUPPLIER', stageLabel: r.stageLabel, userId: r.userId, userName: r.userName,
+        action: 'SUBMIT', comment: '', round: r.round, resubmitCount: r.resubmitCount, at: r.at
+      }))
+      await saveBill(bill)
+      fixed++
+    }
     // 已完成的单据按历史状态保留（新增末环节不追溯）
     // 已完成的单据按历史状态保留（新增末环节不追溯），并把环节序号对齐到链尾
     if (bill.status === 'APPROVED') {
@@ -678,7 +687,7 @@ export async function getBillDetail(user, id) {
     ...toListItem(user, bill),
     sourceFileName: bill.sourceFileName || '',
     items,
-    confirms: bill.confirms || [],
+    confirms: supplierSubmitsOf(bill).concat(bill.confirms || []),
     rejections: bill.rejections || [],
     stages: BILL_STAGES.map(s => {
       const rec = confirmsOfCurrentRound(bill).filter(c => c.stageKey === s.key).pop()
@@ -711,6 +720,46 @@ export async function getBillDetail(user, id) {
       canResubmit: isOwnerSupplier && bill.status === 'REJECTED'
     }
   }
+}
+
+// 供应商提交/重新提交记录：初始化数据时不写 confirm，确认链从工程师开始，
+// 所以明细里的「确认记录」要单独补上提交这一环（否则记录里只有工程师之后的环节）。
+// 有该记录时以它为准（重提会刷新时间与提交次数）。
+function supplierSubmitsOf(bill) {
+  if (bill.supplierSubmits?.length) {
+    return bill.supplierSubmits.map(r => ({ ...r, action: 'SUBMIT' }))
+  }
+  // 兼容历史单据（无该字段）：用创建人信息还原首次提交
+  if (!bill.createdAt) return []
+  return [{
+    stageKey: 'SUPPLIER',
+    stageLabel: '供应商提交',
+    userId: bill.createdBy ?? null,
+    userName: bill.createdByName || bill.supplierName || '',
+    action: 'SUBMIT',
+    comment: '',
+    round: 0,
+    resubmitCount: 0,
+    at: bill.createdAt
+  }]
+}
+
+// 首次提交 / 重新提交各写一条（重提不覆盖首次，记录里能看出提交了几次）
+function pushSupplierSubmit(bill, user, { mode = 'create', comment = '' } = {}) {
+  if (!Array.isArray(bill.supplierSubmits)) bill.supplierSubmits = []
+  bill.supplierSubmits.push({
+    stageKey: 'SUPPLIER',
+    stageLabel: mode === 'resubmit' ? '供应商重新提交' : '供应商提交',
+    userId: user.id,
+    userName: user.userName,
+    action: 'SUBMIT',
+    comment,
+    round: bill.resubmitCount || 0,
+    resubmitCount: bill.resubmitCount || 0,
+    itemCount: bill.itemCount,
+    totalAmount: bill.totalAmount,
+    at: nowText()
+  })
 }
 
 function canEdit(bill) {
@@ -788,6 +837,8 @@ export async function createBill(user, body) {
     resubmitCount: 0,
     confirms: [],
     rejections: [],
+    // 供应商提交记录（确认链路之外的起点，明细「确认记录」要能看到谁在什么时候提交的）
+    supplierSubmits: [],
     ...totals,
     createdBy: user.id,
     createdByName: user.userName,
@@ -796,6 +847,7 @@ export async function createBill(user, body) {
     approvedAt: null
   }
   bills.push(bill)
+  pushSupplierSubmit(bill, user, { mode: 'create' })
   await saveBill(bill)
   await writeItems(bill.id, details)
   audit('finance.bill.create', user, bill, { amount: bill.totalAmount, itemCount: bill.itemCount })
@@ -1364,6 +1416,7 @@ export async function resubmitBill(user, id) {
   }
   bill.status = deriveStatus(bill)
   bill.updatedAt = nowText()
+  pushSupplierSubmit(bill, user, { mode: 'resubmit' })
   await saveBill(bill)
 
   audit('finance.bill.resubmit', user, bill, { resubmitCount: bill.resubmitCount })

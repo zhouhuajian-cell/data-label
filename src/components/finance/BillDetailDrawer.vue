@@ -156,12 +156,21 @@
             <el-timeline-item
               v-for="(r, i) in records"
               :key="i"
-              :type="r.action === 'REJECT' ? 'danger' : 'success'"
+              :type="r.action === 'REJECT' ? 'danger' : (r.action === 'SUBMIT' ? 'primary' : 'success')"
               :timestamp="r.at"
             >
-              <b>{{ r.stageLabel }}</b> · {{ r.userName }} {{ r.action === 'REJECT' ? '驳回' : '确认通过' }}
-              <span v-if="r.comment" class="sub">（{{ r.comment }}）</span>
-              <div v-if="r.reason" class="reject-text">驳回原因：{{ r.reason }}</div>
+              <!-- 供应商提交/重新提交：提交人 + 单数金额（重提标注第几次） -->
+              <template v-if="r.action === 'SUBMIT'">
+                <b>{{ r.stageLabel }}</b> · {{ r.userName }} 提交
+                <span v-if="r.resubmitCount" class="sub">（第 {{ r.resubmitCount }} 次重新提交）</span>
+                <span v-if="r.itemCount" class="sub">（{{ r.itemCount }} 条明细 · ¥{{ formatMoney(r.totalAmount) }}）</span>
+                <div v-if="r.comment" class="sub">备注：{{ r.comment }}</div>
+              </template>
+              <template v-else>
+                <b>{{ r.stageLabel }}</b> · {{ r.userName }} {{ r.action === 'REJECT' ? '驳回' : '确认通过' }}
+                <span v-if="r.comment" class="sub">（{{ r.comment }}）</span>
+                <div v-if="r.reason" class="reject-text">驳回原因：{{ r.reason }}</div>
+              </template>
             </el-timeline-item>
           </el-timeline>
           <el-empty v-else :image-size="50" description="尚无确认记录" class="mb16" />
