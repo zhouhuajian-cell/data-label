@@ -157,15 +157,21 @@ export function stagesOf(userOrRole) {
   return BILL_STAGES.filter(s => owned.includes(s.roleType))
 }
 
-// 金额显示：至少 2 位小数；数值本身有多余精度时最多展示 10 位（去掉末尾 0），
-// 与后端 10 位小数口径一致（见 server/lib/money.js）
+// 金额显示：默认 2 位小数。
+// 平台金额口径支持到 10 位，但浮点累加会产生 1e-10 级别的尾差（如 …9500000002），
+// 因此：与两位小数相差不到 1e-8 时按两位显示；确有更高精度时才展开（最多 10 位，去掉末尾 0）。
 export function formatMoney(value) {
   const n = Number(value || 0)
   if (!Number.isFinite(n)) return '0.00'
+  const two = Number(n.toFixed(2))
+  if (Math.abs(n - two) < 1e-8) {
+    return two.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
   const trimmed = n.toFixed(10).replace(/0+$/, '').replace(/\.$/, '')
   const decLen = String(trimmed).split('.')[1]?.length || 0
   const digits = Math.min(10, Math.max(2, decLen))
   return n.toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+})
 }
 
 // 纯供应商账号（只持供应商角色）：工作台就是「项目管理」（建项目 + 上传验收数据）
