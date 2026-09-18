@@ -319,6 +319,16 @@ if [ -f "$DIR/deploy/backup-db.sh" ]; then
   echo "已安装每日备份定时任务 /etc/cron.d/data-label-backup"
 fi
 
+# 健康巡检 + 飞书告警（每 5 分钟：API/MySQL/磁盘/备份新鲜度/写入降级/内存）
+if [ -f "$DIR/deploy/health-monitor.sh" ]; then
+  chmod 755 "$DIR/deploy/health-monitor.sh"
+  printf '# Maxieye 数据协作平台：健康巡检 + 飞书告警（API/MySQL/磁盘/备份新鲜度/写入降级）
+*/5 * * * * root %s/deploy/health-monitor.sh >> /var/log/data-label-monitor.log 2>&1
+' "$DIR" > /etc/cron.d/data-label-monitor
+  chmod 644 /etc/cron.d/data-label-monitor
+  echo "已安装健康巡检定时任务 /etc/cron.d/data-label-monitor"
+fi
+
 sed -e "s|/opt/data_label|$DIR|g" \\
     -e "s|/usr/bin/node|$NODE_BIN|g" \\
     -e "s|User=data_label|User=$RUN_USER|" \\
