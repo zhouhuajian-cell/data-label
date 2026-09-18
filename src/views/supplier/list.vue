@@ -16,16 +16,14 @@
         <div class="stat-sub">{{ totals.settledCount }} 单已通过 / {{ totals.billCount }} 单</div>
       </el-card>
       <el-card shadow="never" class="stat-card">
-        <div class="stat-label">供应商 / 成本中心</div>
-        <div class="stat-num">
-          {{ totals.supplierCount }} <span class="unit">家</span> / {{ totals.costCenterCount }} <span class="unit">个</span>
-        </div>
+        <div class="stat-label">供应商</div>
+        <div class="stat-num">{{ totals.supplierCount }} <span class="unit">家</span></div>
         <div class="stat-sub">在途 {{ totals.pendingCount }} 单 · 驳回 {{ totals.rejectedCount }} 单</div>
       </el-card>
       <el-card shadow="never" class="stat-card">
-        <div class="stat-label">累积数量</div>
-        <div class="stat-num">{{ formatNum(totals.totalQuantity) }}</div>
-        <div class="stat-sub">{{ totals.itemCount }} 条明细 · 扣款合计 ¥{{ formatMoney(totals.deduction) }}</div>
+        <div class="stat-label">成本中心</div>
+        <div class="stat-num">{{ totals.costCenterCount }} <span class="unit">个</span></div>
+        <div class="stat-sub">金额合计 ¥{{ formatMoney(costCenterTotal) }}</div>
       </el-card>
     </div>
 
@@ -57,16 +55,12 @@
 
     <!-- 供应商累积结算 -->
     <el-card shadow="never" class="table-card">
-      <template #header><span class="card-title">供应商累积结算（按姓名归集）</span></template>
+      <template #header><span class="card-title">供应商结算明细</span></template>
       <el-table :data="suppliers" border size="small" :default-sort="{ prop: 'amount', order: 'descending' }">
         <el-table-column label="供应商" prop="supplierName" min-width="130" fixed="left" />
         <el-table-column label="单据数" prop="billCount" width="90" align="right" />
         <el-table-column label="已通过 / 在途" width="120" align="right">
           <template #default="s">{{ s.row.settledCount }} / {{ s.row.pendingCount }}</template>
-        </el-table-column>
-        <el-table-column label="明细条数" prop="itemCount" width="95" align="right" />
-        <el-table-column label="数量合计" width="110" align="right">
-          <template #default="s">{{ formatNum(s.row.totalQuantity) }}</template>
         </el-table-column>
         <el-table-column label="累计金额" width="130" align="right" sortable prop="amount">
           <template #default="s"><b>¥{{ formatMoney(s.row.amount) }}</b></template>
@@ -120,7 +114,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { Refresh } from '@element-plus/icons-vue'
 import { settlementSummaryApi } from '@/api/finance'
@@ -138,13 +132,16 @@ const periodOptions = ref([])
 const totals = ref({
   amount: 0, settledAmount: 0, pendingAmount: 0, settleRate: 0, billCount: 0,
   settledCount: 0, pendingCount: 0, rejectedCount: 0, supplierCount: 0,
-  costCenterCount: 0, totalQuantity: 0, itemCount: 0, deduction: 0
+  costCenterCount: 0
 })
 const suppliers = ref([])
 const costCenters = ref([])
 const periods = ref([])
 
-const formatNum = (n) => Number(n || 0).toLocaleString('zh-CN')
+
+// 成本中心金额合计（顶部「成本中心」卡片用）
+const costCenterTotal = computed(() => costCenters.value.reduce((s, x) => s + (Number(x.amount) || 0), 0))
+
 
 function renderPie () {
   if (!pieRef.value) return
