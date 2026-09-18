@@ -35,27 +35,6 @@
       </div>
     </el-card>
 
-    <!-- 项目结算汇总（以项目为导向） -->
-    <el-card v-if="projectStats.length" shadow="never">
-      <template #header><span>项目结算汇总</span></template>
-      <el-table :data="projectStats" border size="small">
-        <el-table-column label="项目" prop="projectName" min-width="150" show-overflow-tooltip />
-        <el-table-column label="结算单数" prop="billCount" :width="w(90)" />
-        <el-table-column label="待确认单数" prop="pendingCount" :width="w(110)" />
-        <el-table-column label="待确认金额(元)" :width="w(140)">
-          <template #default="s">¥{{ formatMoney(s.row.pendingAmount) }}</template>
-        </el-table-column>
-        <el-table-column label="已通过金额(元)" :width="w(140)">
-          <template #default="s"><span class="money">¥{{ formatMoney(s.row.approvedAmount) }}</span></template>
-        </el-table-column>
-        <el-table-column label="操作" :width="w(80)" fixed="right">
-          <template #default="s">
-            <el-button text type="primary" @click="onProjectFilter(s.row.projectId)">查看</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
@@ -103,11 +82,11 @@
         </el-table-column>
         <el-table-column label="操作" :width="w(132)" fixed="right">
           <template #default="s">
-            <el-button v-if="s.row.isMyTurn" text type="success" @click="openDetail(s.row.id, true)">去确认</el-button>
-            <el-button v-else text type="primary" @click="openDetail(s.row.id)">查看</el-button>
-            <!-- 加急催办：单据没走完、当前环节又不是自己时可用 -->
-            <el-tooltip v-if="canUrgeRow(s.row)" :content="s.row.urgeCount ? `加急催办当前环节（已催办 ${s.row.urgeCount} 次）` : '加急催办当前环节的处理人'" placement="top">
-              <el-button text type="warning" @click="onUrgeRow(s.row)">催办</el-button>
+            <el-button v-if="s.row.isMyTurn" text type="success" @click="openDetail(s.row.id, true)">去确认</el-button>
+            <el-button v-else text type="primary" @click="openDetail(s.row.id)">查看</el-button>
+            <!-- 加急催办：单据没走完、当前环节又不是自己时可用 -->
+            <el-tooltip v-if="canUrgeRow(s.row)" :content="s.row.urgeCount ? `加急催办当前环节（已催办 ${s.row.urgeCount} 次）` : '加急催办当前环节的处理人'" placement="top">
+              <el-button text type="warning" @click="onUrgeRow(s.row)">催办</el-button>
             </el-tooltip>
           </template>
         </el-table-column>
@@ -172,9 +151,6 @@ const activeChip = ref('all')
 
 const filters = reactive({ page: 1, pageSize: 20, keyword: '', supplierName: '', projectId: null, status: 'all', scope: '' })
 
-// 项目维度汇总（仅展示有单据的项目）
-const projectStats = computed(() => stats.value.projects || [])
-
 const statCards = computed(() => [
   { key: 'todo', val: stats.value.myTodoCount || 0, label: myStage.value ? '待我确认' : '待确认', color: '#e6a23c', scope: 'todo', money: '¥' + formatMoney(stats.value.myTodoAmount) },
   { key: 'pending', val: stats.value.pendingCount || 0, label: '确认中', color: '#409eff', status: 'PENDING', money: '¥' + formatMoney(stats.value.pendingAmount) },
@@ -233,12 +209,6 @@ function syncProjectOptions(statsData) {
       projectOptions.value.push({ id: r.projectId, name: r.projectName })
     }
   })
-}
-
-function onProjectFilter(projectId) {
-  if (!projectId) return
-  filters.projectId = projectId
-  reload()
 }
 
 async function loadList() {
