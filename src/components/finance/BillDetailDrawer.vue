@@ -208,10 +208,7 @@
               </span>
             </el-tooltip>
             <!-- 统结方节点：导入/解析明细表 → 系统自动汇总金额提交（不再手填总金额） -->
-            <el-button v-if="isSettlementStage" type="warning" :loading="acting" @click="openSettleDialog">导入统结数据并提交</el-button>
-            <el-tooltip v-if="canResubmitSettlement" content="停在统结方/财务二次确认时，由统结方改正后重新提交" placement="top">
-              <el-button type="warning" plain :loading="acting" @click="openSettleDialog">统结方重新提交</el-button>
-            </el-tooltip>
+            <el-button v-if="canSubmitSettlement" type="warning" :loading="acting" @click="openSettleDialog">导入统结数据并提交</el-button>
             <el-tooltip v-if="isFinance2Stage && settlementExceeded" :content="`统结方提交较供应商合计增幅 ${settlementRate}% 超过上限 ${settlementLimit}%，请让统结方重新提交`" placement="top">
               <span><el-button type="success" disabled>确认通过</el-button></span>
             </el-tooltip>
@@ -332,11 +329,13 @@ const settlementCmp = computed(() => detail.value?.comparison || null)
 const settlementExceeded = computed(() => !!settlementCmp.value?.exceeded)
 const settlementRate = computed(() => settlementCmp.value?.ratePercent ?? 0)
 const settlementLimit = computed(() => settlementCmp.value?.limitPercent ?? 3.5)
-// 统结方重新提交：他本人的单据停在统结方/二次确认阶段时
-const canResubmitSettlement = computed(() => {
+// 统结方提交入口（唯一按钮）：停在统结方节点可直接提交；
+// 二次确认阶段（如增幅超限）由统结方改正后重提，走同一个入口
+const canSubmitSettlement = computed(() => {
+  if (isSettlementStage.value) return true
   const s = detail.value?.status
   const me = hasRole(userStore.userInfo, ROLE_TYPE.SETTLEMENT)
-  return me && (s === 'PENDING_SETTLEMENT' || s === 'PENDING_FINANCE2')
+  return me && s === 'PENDING_FINANCE2'
 })
 
 function openSettleDialog () { settleDialog.value = true }
