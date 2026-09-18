@@ -179,6 +179,13 @@ export function isSupplierOnly(userOrRole) {
   return roles.length > 0 && roles.every(r => r === ROLE_TYPE.VENDOR_TL)
 }
 
+// 统结方账号（持有统结方角色）。统结方（如柏川）通常同时带供应商角色，
+// 但他在平台上的职责是汇总各供应商数据后提交，不做项目维护：
+// 「项目管理」入口对他隐藏，上传统结数据走「数据验收进度」页内的弹窗。
+export function isSettlementParty(userOrRole) {
+  return hasAnyRole(userOrRole, [ROLE_TYPE.SETTLEMENT])
+}
+
 // 是否可访问「验收结算确认」页：确认链角色与甲方PM可访问；纯供应商只在项目页内看本项目的结算单
 export function canAccessBills(userOrRole) {
   if (isSupplierOnly(userOrRole)) return false

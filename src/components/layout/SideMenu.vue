@@ -131,7 +131,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useUserStore } from '@/store/user'
-import { ROLE_TYPE, FEATURES, BILL_ALL_ROLES, hasRole, hasAnyRole, roleLabelsOf, canAccessBills } from '@/utils/constants'
+import { ROLE_TYPE, FEATURES, BILL_ALL_ROLES, hasRole, hasAnyRole, roleLabelsOf, canAccessBills, isSettlementParty } from '@/utils/constants'
 import ChangePasswordDialog from '@/components/common/ChangePasswordDialog.vue'
 import { DataLine, ArrowLeft, DataBoard, Document, FolderOpened, Message, User, EditPen, Select, HomeFilled, Coin, List, Tickets, UploadFilled, Money } from '@element-plus/icons-vue'
 const userStore = useUserStore()
@@ -146,8 +146,11 @@ const isVendorTl = computed(() => hasRole(userInfo.value, ROLE_TYPE.VENDOR_TL))
 const isAnnotator = computed(() => hasRole(userInfo.value, ROLE_TYPE.ANNOTATOR))
 const isSupplierSide = computed(() => hasAnyRole(userInfo.value, [ROLE_TYPE.VENDOR_TL, ROLE_TYPE.ANNOTATOR]))
 const canViewDataset = computed(() => hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.ALGO_ENG, ROLE_TYPE.DATA_CLEANER]))
-// 项目管理：供应商也需要（项目下上传验收数据）
-const canManageProjects = computed(() => hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.DATA_CLEANER, ROLE_TYPE.VENDOR_TL]))
+// 项目管理：供应商需要（项目下上传验收数据）；统结方不做项目维护，入口对他隐藏
+// （统结方上传走「数据验收进度」页内的弹窗，权限不受影响）
+const canManageProjects = computed(() =>
+  !isSettlementParty(userInfo.value) &&
+  hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.DATA_CLEANER, ROLE_TYPE.VENDOR_TL]))
 // 无任何"供应商侧/甲方质检"角色的账号才看到任务管理（数据生产域）
 const canViewTaskManage = computed(() => !hasAnyRole(userInfo.value, [ROLE_TYPE.CLIENT_PM, ROLE_TYPE.CLIENT_QA, ROLE_TYPE.VENDOR_TL, ROLE_TYPE.ANNOTATOR]))
 // 数据生产域开关

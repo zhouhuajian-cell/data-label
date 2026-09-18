@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/store/user'
-import { BILL_ALL_ROLES, FEATURES, defaultHomePath, isHiddenByDataModule, hasAnyRole, canAccessBills } from '@/utils/constants'
+import { BILL_ALL_ROLES, FEATURES, defaultHomePath, isHiddenByDataModule, hasAnyRole, canAccessBills, isSettlementParty } from '@/utils/constants'
 
 const routes = [
   {
@@ -77,6 +77,10 @@ router.beforeEach((to, from, next) => {
   }
   // 结算确认页不对纯供应商开放（供应商在「项目管理」页内查看本项目结算单）
   if (to.path.startsWith('/finance/bills') && !canAccessBills(userInfo)) {
+    return next(defaultHomePath(userInfo))
+  }
+  // 统结方不做项目维护：项目管理页对其隐藏（手动敲 URL 也回落到他的首页）
+  if (to.path === '/supplier/projects' && isSettlementParty(userInfo)) {
     return next(defaultHomePath(userInfo))
   }
   // meta.roles 命中账号任一角色即放行（多角色）
