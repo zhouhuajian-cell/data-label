@@ -32,7 +32,11 @@ const pm = { id: 307, roleType: 1, supplierId: null, userName: '管理员' }
 async function confirmParty(bill, comment) {
   const d = await getBillDetail(pm, bill.id)
   const base = d.supplierConfirmedTotal?.supplierTotal || 1
-  await confirmBill(party, bill.id, { submittedTotal: base, comment })
+  await confirmBill(party, bill.id, {
+    items: [{ taskName: '统结明细', quantity: 1, unitPrice: base }],
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: '统结附件.csv', size: 1 }],
+    comment
+  })
   return confirmBill(finance, bill.id, {})
 }
 
@@ -314,7 +318,7 @@ test('统结方提交（导入解析）→ 财务二次确认：超 3.5% 报警�
   assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_SETTLEMENT')
 
   // 统结方什么都不交 → 拒绝
-  await assert.rejects(() => confirmBill(party, bill.id, {}), err => err.code === 'VALIDATION_ERROR')
+  await assert.rejects(() => confirmBill(party, bill.id, {}), err => err.code === 'SETTLEMENT_REQUIRED')
 
   // 详情带出「供应商确认金额合计」供界面实时对比
   const detail = await getBillDetail(party, bill.id)
@@ -325,6 +329,7 @@ test('统结方提交（导入解析）→ 财务二次确认：超 3.5% 报警�
   const overPrice = Number((base * 1.2).toFixed(2))          // 明细汇总后比供应商合计高 20%
   const submitted = await confirmBill(party, bill.id, {
     items: [{ taskName: '统结明细-A', unit: '帧', quantity: 1, unitPrice: overPrice }],
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: '统结附件.csv', size: 1 }],
     comment: '导入统结数据'
   })
   assert.equal(submitted.status, 'PENDING_FINANCE2', '提交后进入财务二次确认')
@@ -341,7 +346,11 @@ test('统结方提交（导入解析）→ 财务二次确认：超 3.5% 报警�
   assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_FINANCE2', '状态不前进')
 
   // 统结方改正后重新提交（不必整单退回供应商）→ 财务二次确认通过
-  const fixed = await resubmitSettlement(party, bill.id, { submittedTotal: Number((base * 1.02).toFixed(2)) })
+  const fixed = await resubmitSettlement(party, bill.id, {
+    items: [{ taskName: '统结明细-A', unit: '帧', quantity: 1, unitPrice: Number((base * 1.02).toFixed(2)) }],
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: '统结附件.csv', size: 1 }],
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: '统结附件.csv', size: 1 }]
+  })
   assert.equal(fixed.status, 'PENDING_FINANCE2')
   const rec2 = fixed.confirms.find(c => c.stageKey === 'SETTLEMENT')
   assert.equal(rec2.settlement.increasePercent, 2, '重新提交后增幅 2%')

@@ -193,6 +193,8 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   // 统结方模式：同一套「导入/解析明细」界面，提交的是统结数据（走统结方节点，不建新单）
   settleMode: { type: Boolean, default: false },
+  // settleMode 下用于展示（只读）的单据信息
+  settleBillInfo: { type: Object, default: null },
   // 项目上下文：项目页打开时固定传入
   project: { type: Object, default: null },
   // 编辑既有结算单（结算单列表页使用）
@@ -414,8 +416,8 @@ function downloadTemplate() {
 async function onSubmit() {
   const projectId = props.project?.id || editProjectId.value
   if (!projectId) { ElMessage.warning('缺少项目信息，请在项目管理页上传'); return }
-  if (!form.batchName.trim()) { ElMessage.warning('请填写批次名称'); return }
-  if (!String(form.period || '').trim()) { ElMessage.warning('请填写结算周期（统结对比按「同项目+同周期」汇总，必填）'); return }
+  if (!props.settleMode && !form.batchName.trim()) { ElMessage.warning('请填写批次名称'); return }
+  if (!props.settleMode && !String(form.period || '').trim()) { ElMessage.warning('请填写结算周期（统结对比按「同项目+同周期」汇总，必填）'); return }
   const invalid = rows.value.findIndex(r => !String(r.taskName || '').trim())
   if (rows.value.length && invalid >= 0) { ElMessage.warning(`第 ${invalid + 1} 行缺少项目`); return }
   if (!rows.value.length) { ElMessage.warning('请至少导入或添加一条验收数据'); return }

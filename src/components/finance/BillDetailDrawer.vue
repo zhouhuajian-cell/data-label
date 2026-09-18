@@ -99,7 +99,8 @@
               </div>
               <div class="sb-row">
                 <span class="sb-label">统结方提交总金额</span>
-                <el-input-number v-model="submittedTotal" :min="0" :step="100" :controls="false" style="width:180px" placeholder="填写总金额" />
+                <b>¥{{ formatMoney(submittedTotal || 0) }}</b>
+                <span class="tip">（由导入的统结明细自动汇总）</span>
               </div>
               <div class="sb-result" :class="{ bad: increaseExceeded }">
                 差异 ¥{{ formatMoney(increaseDiff) }} · 增幅
@@ -244,6 +245,7 @@
       v-model="settleDialog"
       :project="detail.projectId ? { id: detail.projectId, name: detail.projectName } : null"
       settle-mode
+      :settle-bill-info="{ batchName: detail.batchName, period: detail.period, supplierName: detail.supplierName }"
       @settle-submit="onSettleSubmit"
     />
 

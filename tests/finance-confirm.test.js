@@ -37,10 +37,15 @@ const pm = { id: 207, roleType: 1, supplierId: null, userName: '管理员' }
 
 // 统结方确认助手：按当前"供应商确认合计"等额提交（增幅 0%，必然在 3.5% 红线内）
 // 统结方导入提交 → 财务二次确认（链上现在是两步）
+// 统结方：导入明细 + 附件（金额由明细自动汇总）→ 财务二次确认
 async function confirmParty(bill, comment) {
   const d = await getBillDetail(pm, bill.id)
   const base = d.supplierConfirmedTotal?.supplierTotal || 1
-  await confirmBill(party, bill.id, { submittedTotal: base, comment })
+  await confirmBill(party, bill.id, {
+    items: [{ taskName: '统结明细', quantity: 1, unitPrice: base }],
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: '统结附件.csv', size: 1 }],
+    comment
+  })
   return confirmBill(finance, bill.id, {})
 }
 
@@ -90,7 +95,11 @@ test('正向流转：上传 → 业务工程师 → 财务 → 统结方提交 �
   assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_SETTLEMENT')
 
   // 统结方提交后，先由财务做二次确认（汇总对比），才流转到负责人
-  await confirmBill(party, bill.id, { submittedTotal: 1500, comment: '已提交统结数据' })
+  await confirmBill(party, bill.id, {
+    items: [{ taskName: '统结明细', quantity: 1, unitPrice: 1500 }],
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: '统结附件.csv', size: 1 }],
+    comment: '已提交统结数据'
+  })
   assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_FINANCE2')
   await confirmBill(finance, bill.id, { comment: '汇总核对无误' })
   assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_LEADER')

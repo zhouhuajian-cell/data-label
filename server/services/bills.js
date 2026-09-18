@@ -403,8 +403,11 @@ export async function resubmitSettlement(user, id, body = {}) {
   }
   const items = Array.isArray(body.items) ? body.items : []
   const submittedTotal = Number(body.submittedTotal) || 0
-  if (!items.length && !(submittedTotal > 0)) {
-    throw new ApiError(422, 'VALIDATION_ERROR', '请导入统结数据（Excel/CSV）或填写统一结算总金额')
+  if (!items.length) {
+    throw new ApiError(422, 'SETTLEMENT_REQUIRED', '请导入统结明细（Excel/CSV 或粘贴）后再提交')
+  }
+  if (!(normalizeAttachments(body.attachments) || []).length) {
+    throw new ApiError(422, 'ATTACHMENT_REQUIRED', '请上传「附件（明细数据）」后再提交')
   }
   const { base, supplierCount, billCount } = supplierBaseAmount(bill)
   let details = null
@@ -1210,6 +1213,12 @@ export async function confirmBill(user, id, body = {}) {
   // 统结方节点：导入/解析明细表 → 系统自动汇总金额并保存（提交即完成本环节，不再手填总金额）
   // 增幅对比改由下一步「财务二次确认」校验
   let settlementInfo = null
+  if (stage.key === 'SETTLEMENT' && !(Array.isArray(body.items) && body.items.length)) {
+    throw new ApiError(422, 'SETTLEMENT_REQUIRED', '请导入统结明细（Excel/CSV 或粘贴）后再提交')
+  }
+  if (stage.key === 'SETTLEMENT' && !(normalizeAttachments(body.attachments) || []).length) {
+    throw new ApiError(422, 'ATTACHMENT_REQUIRED', '请上传「附件（明细数据）」后再提交')
+  }
   if (stage.key === 'SETTLEMENT' && Array.isArray(body.items) && body.items.length) {
     const details = normalizeItems(body.items, bill.formula, { 系数: bill.coefficient })
     const totals = sumTotals(details)
@@ -1238,25 +1247,8 @@ export async function confirmBill(user, id, body = {}) {
       submittedBy: actorText(user)
     }
   } else if (stage.key === 'SETTLEMENT') {
-    const submittedTotal = Number(body.submittedTotal)
-    if (!Number.isFinite(submittedTotal) || submittedTotal <= 0) {
-      throw new ApiError(422, 'VALIDATION_ERROR', '请导入统结数据（Excel/CSV）后提交')
-    }
-    // 兼容旧的「手填总金额」路径：仍记录金额，但增幅校验在财务二次确认时进行
-    const { base, supplierCount, billCount } = supplierBaseAmount(bill)
-    settlementInfo = {
-      source: 'manual',
-      submittedTotal: roundMoney(submittedTotal),
-      supplierTotal: base,
-      supplierCount,
-      billCount,
-      difference: roundMoney(submittedTotal - base),
-      increasePercent: base > 0 ? roundPercent((submittedTotal - base) / base * 100) : 0,
-      limitPercent: roundPercent(MAX_INCREASE_RATE * 100),
-      period: bill.period || '',
-      attachments: normalizeAttachments(body.attachments) || [],
-      submittedBy: actorText(user)
-    }
+    // 统结方与供应商同口径：必须导入明细 + 上传附件（金额由明细自动汇总），不再支持"只填总金额"
+    throw new ApiError(422, 'VALIDATION_ERROR', '请导入统结明细（Excel/CSV）并上传附件后提交')
   }
 
   // 财务二次确认：供应商合计 vs 统结方提交合计，超 3.5% 报警且确认不了
