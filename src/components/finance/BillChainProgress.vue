@@ -1,5 +1,5 @@
 <template>
-  <div class="chain" :class="{ compact }">
+  <div class="chain" :class="{ compact, labelled }">
     <template v-for="(st, i) in chain" :key="st.key">
       <span v-if="i > 0" class="chain-line" :class="lineClass(i)" />
       <el-tooltip :content="tooltip(st)" placement="top" :show-after="120">
@@ -10,7 +10,8 @@
         </span>
       </el-tooltip>
     </template>
-    <span v-if="!compact" class="chain-text">{{ summaryText }}</span>
+    <span v-if="labelled" class="chain-count" :class="tagClass">{{ doneCount }}/{{ chain.length }}</span>
+    <span v-else-if="!compact" class="chain-text">{{ summaryText }}</span>
   </div>
 </template>
 
@@ -22,7 +23,9 @@ const props = defineProps({
   // [{ key, label, short, done, active, error }]
   chain: { type: Array, default: () => [] },
   status: { type: String, default: '' },
-  compact: { type: Boolean, default: false }
+  compact: { type: Boolean, default: false },
+  // 圆点后追加一枚短标签：列表里不悬停也能看懂卡在哪一环
+  labelled: { type: Boolean, default: false }
 })
 
 const approved = computed(() => props.status === 'APPROVED')
@@ -50,6 +53,15 @@ function tooltip(st) {
   return `${st.label}：未开始`
 }
 
+// 已完成节点数（列表里以 n/总数 呈现，具体卡在哪一环由「当前环节」列说明）
+const doneCount = computed(() => props.chain.filter(s => s.done).length)
+
+const tagClass = computed(() => {
+  if (approved.value) return 'is-ok'
+  if (rejected.value) return 'is-bad'
+  return 'is-doing'
+})
+
 // 一句话总结当前进度：已确认 n/4，或卡在哪个节点
 const summaryText = computed(() => {
   const total = props.chain.length
@@ -65,7 +77,7 @@ const summaryText = computed(() => {
 </script>
 
 <style scoped>
-.chain { display: flex; align-items: center; gap: 2px; }
+.chain { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; }
 .chain-node {
   width: 18px;
   height: 18px;
@@ -92,4 +104,23 @@ const summaryText = computed(() => {
 .chain.compact .chain-node { width: 14px; height: 14px; font-size: 9px; }
 .chain.compact .chain-line { width: 8px; }
 .chain.compact .chain-icon { font-size: 9px; }
+/* 带标签模式：圆点更小 + 右侧短标签，整列更窄且不靠悬停
+   尺寸与 .compact 同优先级，故写在后面覆盖上面两条 compact 规则 */
+.chain.labelled { gap: 1px; }
+.chain.labelled .chain-node { width: 13px; height: 13px; font-size: 8px; }
+.chain.labelled .chain-line { width: 5px; }
+.chain.labelled .chain-icon { font-size: 8px; }
+.chain-count {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.chain-count.is-ok { background: rgba(24, 160, 88, 0.12); color: var(--success, #18a058); }
+.chain-count.is-bad { background: rgba(214, 69, 80, 0.12); color: var(--danger, #d64550); }
+.chain-count.is-doing { background: rgba(61, 99, 221, 0.12); color: var(--primary, #3d63dd); }
 </style>

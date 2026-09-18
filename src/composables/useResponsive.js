@@ -3,7 +3,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 // 断点（与 Element Plus 的 lg=1200 / xl=1920 保持错位，取页面实际可用宽度）
-const NARROW = 1180   // 窄屏：抽屉全宽、表单单列、统计卡两列
+// NARROW 取 1320：1366/1280 这类"去掉侧栏后不够放表格"的笔记本屏也走紧凑档，
+// 避免结算列表必须横向拖动才能看全
+const NARROW = 1320   // 窄屏：抽屉全宽、表单单列、统计卡两列、表格列宽压缩
 const LAPTOP = 1500   // 笔记本：表单两列、统计卡两列/三列
 
 export function useResponsive() {

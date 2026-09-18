@@ -139,20 +139,20 @@
               </div>
             </div>
 
+            <!-- 全部用固定列宽：弹性列（min-width）会按内容各自扩张，总宽超出后必须拖动才能看全 -->
             <el-table :data="projectBills" border size="small">
-              <el-table-column label="结算单号" prop="billNo" width="146" />
-              <el-table-column label="批次名称" prop="batchName" min-width="130" show-overflow-tooltip />
-              <el-table-column label="供应商" prop="supplierName" width="100" show-overflow-tooltip />
-              <el-table-column label="金额(元)" width="104">
+              <el-table-column label="结算单号" prop="billNo" width="128" />
+              <el-table-column label="批次名称" prop="batchName" width="128" show-overflow-tooltip />
+              <el-table-column label="供应商" prop="supplierName" width="92" show-overflow-tooltip />
+              <el-table-column label="金额(元)" width="106" align="right">
                 <template #default="s"><span class="money">¥{{ formatMoney(s.row.totalAmount) }}</span></template>
               </el-table-column>
-              <el-table-column label="结算进度" width="150">
-                <template #default="s"><BillChainProgress :chain="s.row.chain" :status="s.row.status" compact /></template>
+              <!-- 进度列：7 个圆点 + 已完成计数，不悬停也能看懂进度到哪
+                   （右栏只有 ~700px，故不再单列「当前环节」，其信息由此列表达） -->
+              <el-table-column label="结算进度" width="176">
+                <template #default="s"><BillChainProgress :chain="s.row.chain" :status="s.row.status" labelled /></template>
               </el-table-column>
-              <el-table-column label="当前环节" width="130">
-                <template #default="s"><el-tag :type="getBillStatusType(s.row.status)" size="small">{{ getBillStatusText(s.row.status) }}</el-tag></template>
-              </el-table-column>
-              <el-table-column label="操作" width="76" fixed="right">
+              <el-table-column label="操作" width="68">
                 <template #default="s"><el-button text size="small" type="primary" @click="openProjectBill(s.row.id)">查看</el-button></template>
               </el-table-column>
               <template #empty>
@@ -839,6 +839,10 @@ onUnmounted(() => {
 .stat-label { color: #909399; margin-top: 6px; font-size: 13px; }
 
 .pm-body { display: grid; grid-template-columns: 320px 1fr; gap: 12px; min-height: 0; }
+/* 窄屏（1280~1366 笔记本）收窄左栏，把空间让给右侧的结算单表格 */
+@media (max-width: 1500px) {
+  .pm-body { grid-template-columns: 268px 1fr; }
+}
 
 /* 左侧项目列表 */
 .proj-list-panel { display: flex; flex-direction: column; background: #fff; border-radius: 8px; padding: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
@@ -871,7 +875,24 @@ onUnmounted(() => {
 .ph-name { font-size: 18px; font-weight: 700; color: #303133; }
 .ph-desc { margin-bottom: 4px; }
 .ph-desc-text { font-size: 13px; color: #909399; margin-top: 8px; line-height: 1.6; }
-.ph-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.ph-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* 表格状态标签：单行省略，避免换行把行高撑高、撑破列宽 */
+.stage-tag {
+  display: block;
+  max-width: 100%;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.stage-tag--success { background: rgba(24, 160, 88, 0.12); color: #18a058; }
+.stage-tag--warning { background: rgba(230, 162, 60, 0.14); color: #b88230; }
+.stage-tag--danger { background: rgba(214, 69, 80, 0.12); color: #d64550; }
+.stage-tag--info { background: rgba(144, 147, 153, 0.14); color: #73767a; }
 
 .task-panel :deep(.el-card__body) { padding: 12px 16px; }
 .settle-summary {
