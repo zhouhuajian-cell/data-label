@@ -302,7 +302,7 @@ function qaReview(user, itemId, body, level) {
 
 // 供应商团队长（含质检）一审
 export function vendorQaItem(user, itemId, body) {
-  if (user.roleType !== 3) throw new ApiError(403, 'FORBIDDEN', '仅供应商团队长可操作')
+  if (user.roleType !== 3) throw new ApiError(403, 'FORBIDDEN', '仅供应商可操作')
   const item = findItem(itemId)
   const task = findTask(item.taskId)
   // 质检领取锁定：被他人领取的任务不可质检

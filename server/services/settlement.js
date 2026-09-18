@@ -86,7 +86,7 @@ export function confirmSettlement(user, id) {
   if (!s) throw new ApiError(404, 'NOT_FOUND', '结算单不存在')
   const isPm = user.roleType === 1
   const isVendorTl = user.roleType === 3 && user.supplierId === s.supplierId
-  if (!isPm && !isVendorTl) throw new ApiError(403, 'FORBIDDEN', '仅管理员 或该供应商团队长可确认')
+  if (!isPm && !isVendorTl) throw new ApiError(403, 'FORBIDDEN', '仅管理员 或该供应商可确认')
   if (s.status === 'REJECTED') throw new ApiError(409, 'STATE_CONFLICT', '该结算单已因质量不合格打回，不可确认')
   if (s.status === 'SETTLED') return s
 
