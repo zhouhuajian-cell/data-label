@@ -1,7 +1,8 @@
 import { ApiError } from '../lib/http.js'
 import { auditLogs, projects, projectStats, tasks, taskItems, taskLogs, submissions, governedItems, governedDatasets, bills } from '../repositories/data.js'
 import { nowText } from '../lib/time.js'
-import { hasAnyRole, roleTypesOf } from '../lib/roles.js'
+import { hasAnyRole, hasRole, roleTypesOf } from '../lib/roles.js'
+import { deleteBillRow } from '../repositories/finance-db.js'
 
 const buyerRole = 1
 const qaRole = 2
@@ -169,17 +170,28 @@ export function importProjects(user, body) {
   return { imported }
 }
 
-export function deleteProject(user, projectId) {
+export async function deleteProject(user, projectId) {
   // 供应商也可删除项目（与建项目同权限）
   requireProjectEditor(user)
   const idx = projects.findIndex(p => p.id === projectId)
   if (idx < 0) throw new ApiError(404, 'NOT_FOUND', '项目不存在')
 
-  // 护栏：项目下已有结算单（已提交过）则不允许删除，否则结算单会失去项目归属，成本中心/项目报表断链
+  // 护栏：项目下已有结算单则不允许删除，否则结算单会失去项目归属，成本中心/项目报表断链。
+  // 管理员（role 1）可以强制删除，连同该项目下的结算单一起级联清除（用于清理误建数据）
   const attachedBills = bills.filter(b => b.projectId === projectId)
+  let deletedBills = 0
   if (attachedBills.length) {
-    throw new ApiError(409, 'PROJECT_HAS_BILLS',
-      `该项目已提交过 ${attachedBills.length} 张结算单，不能删除；请先处理掉这些结算单再删项目`)
+    if (!hasRole(user, buyerRole)) {
+      throw new ApiError(409, 'PROJECT_HAS_BILLS',
+        `该项目已提交过 ${attachedBills.length} 张结算单，不能删除；请先处理掉这些结算单再删项目`)
+    }
+    for (const b of attachedBills) {
+      await deleteBillRow(b.id)
+      const bi = bills.findIndex(x => x.id === b.id)
+      if (bi >= 0) bills.splice(bi, 1)
+      deletedBills++
+    }
+    auditLogs.push({ action: 'project.deleteBills', actorId: user.id, projectId, count: deletedBills, at: nowText() })
   }
 
   // 级联删除项目下的所有任务及其明细、日志、交付记录

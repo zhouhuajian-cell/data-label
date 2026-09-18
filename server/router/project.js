@@ -39,7 +39,7 @@ export async function projectRouter(ctx) {
   if (status && req.method === 'PUT') { ok(res, updateProjectStatus(user, Number(status[1]), await body())); return true }
 
   if (projId && req.method === 'PUT') { ok(res, updateProject(user, Number(projId[1]), await body())); return true }
-  if (projId && req.method === 'DELETE') { ok(res, deleteProject(user, Number(projId[1]))); return true }
+  if (projId && req.method === 'DELETE') { ok(res, await deleteProject(user, Number(projId[1]))); return true }
 
   const split = m(/^\/api\/projects\/(\d+)\/split$/)
   if (split && req.method === 'POST') { created(res, splitProjectDataset(user, Number(split[1]), await body())); return true }

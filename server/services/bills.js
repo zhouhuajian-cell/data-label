@@ -704,7 +704,7 @@ export async function getBillDetail(user, id) {
         return ''
       })(),
       canEdit: isOwnerSupplier && canEdit(bill),
-      canDelete: canEdit(bill) && (isOwnerSupplier || hasRole(user, ROLE.CLIENT_PM)),
+      canDelete: hasRole(user, ROLE.CLIENT_PM) || (canEdit(bill) && isOwnerSupplier),
       canResubmit: isOwnerSupplier && bill.status === 'REJECTED'
     }
   }
@@ -870,7 +870,8 @@ export async function deleteBill(user, id) {
   if (!isOwnerSupplier && !hasRole(user, ROLE.CLIENT_PM)) {
     throw new ApiError(403, 'FORBIDDEN', '无权删除该结算单')
   }
-  if ((bill.confirms || []).length > 0) {
+  // 管理员（role 1）可强制删除任意状态的单据（用于清理误建/测试数据）；其余角色仍需未确认
+  if ((bill.confirms || []).length > 0 && !hasRole(user, ROLE.CLIENT_PM)) {
     throw new ApiError(409, 'BILL_STATE_CONFLICT', '已有确认记录的结算单不可删除，请走驳回流程')
   }
   await deleteBillRow(bill.id)
