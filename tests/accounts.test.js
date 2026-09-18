@@ -9,7 +9,7 @@ import { changeOwnPassword, loginByPassword, PASSWORD_MIN_LENGTH } from '../serv
 // 单元测试绝不触碰真实 MySQL（本用例只操作内存集合）
 config.db.enabled = false
 
-const pm = { id: 1, username: 'taixing', roleType: 1, roleTypes: [1], userName: '甲方PM', supplierId: null }
+const pm = { id: 1, username: 'taixing', roleType: 1, roleTypes: [1], userName: '管理员', supplierId: null }
 
 test('角色工具：主角色恒在首位，兼容单角色与多角色', () => {
   assert.deepEqual(roleTypesOf({ roleType: 13 }), [13])
@@ -78,7 +78,7 @@ test('改密：原密码校验、长度校验、新旧不同；成功后清除�
     err => err.code === 'INVALID_CREDENTIALS')
 })
 
-test('管理员重置密码：置为待改密，且仅甲方PM可操作', () => {
+test('管理员重置密码：置为待改密，且仅管理员可操作', () => {
   const created = createUser(pm, { username: 'pwd_user_02', userName: '重置账员', roleTypes: [14], password: 'init123' })
   assert.throws(() => adminResetPassword({ ...pm, roleType: 13, roleTypes: [13] }, created.id, 'reset123'),
     err => err.code === 'FORBIDDEN')

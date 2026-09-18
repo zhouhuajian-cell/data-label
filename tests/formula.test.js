@@ -6,7 +6,7 @@ config.db.enabled = false // 不触碰真实 MySQL
 import { compileFormula, validateFormula, DEFAULT_FORMULA, FORMULA_VARS } from '../server/lib/formula.js'
 import { previewFormula } from '../server/services/bills.js'
 
-const pm = { id: 1, roleType: 1, roleTypes: [1], userName: '甲方PM', supplierId: null }
+const pm = { id: 1, roleType: 1, roleTypes: [1], userName: '管理员', supplierId: null }
 
 test('公式求值：四则运算、括号、一元负号、百分比', () => {
   assert.equal(compileFormula('数量*单价').evaluate({ quantity: 10, unitPrice: 3.5 }), 35)

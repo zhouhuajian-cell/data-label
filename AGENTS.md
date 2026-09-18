@@ -41,7 +41,7 @@ server/
 - 账单集合：`bills` / `billItems`（新增集合必须同步加入 `repositories/store.js` 的 `KEYS`，否则不落盘）
 - 结算以项目为导向：每张结算确认单必须带 `projectId`；上传/编辑验收数据统一走 `AcceptanceUploadDialog`（项目页内弹窗，无独立上传页）
 - 权限：供应商(3)可建/改项目、上传验收数据；纯供应商账号只能访问「项目管理」+「消息中心」（`canAccessBills` 判定）
-- 财务核算：`calculateBill` 只允许「待财务确认」阶段 + 财务(14)/甲方PM(1)；**财务节点确认前必须已核算**（否则 422 `FINANCE_CALC_REQUIRED`）；重提或改明细会清空 `bill.finance`
+- 财务核算：`calculateBill` 只允许「待财务确认」阶段 + 财务(14)/管理员(1)；**财务节点确认前必须已核算**（否则 422 `FINANCE_CALC_REQUIRED`）；重提或改明细会清空 `bill.finance`
 - 前端数据生产域（数据集/任务/标注/质检）由 `src/utils/constants.js` 的 `FEATURES.DATA_MODULE` 一处开关控制，配套 `DATA_MODULE_PATHS` 路由黑名单；项目管理 `/supplier/projects` 不在此列（保留）
 - 账号多角色：`roleTypes` 数组为准（`roleType` = `roleTypes[0]`），后端用 `lib/roles.js` 的 `hasRole/hasAnyRole/roleTypesOf` 判定，**不要写 `user.roleType === x`**
 - 环节提醒：`createNotification` 统一走 `enqueueFeishu` 串行限速队列（飞书 Webhook 有频率限制），推送结果落 `auditLogs(action=feishu.push)` 供核对

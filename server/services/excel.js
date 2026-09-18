@@ -71,7 +71,7 @@ function assertRowsReady(rows) {
 
 // 解析 Excel/CSV 为任务明细行
 export async function parseTaskExcel(user, body) {
-  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅甲方PM可操作')
+  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅管理员可操作')
   const rows = await readSheetRows(body.fileData, body.fileName)
   assertRowsReady(rows)
 
@@ -112,7 +112,7 @@ export async function parseTaskExcel(user, body) {
 export const ACCEPTANCE_MAX_ROWS = 5000
 
 export async function parseAcceptanceExcel(user, body) {
-  if (![1, 3].includes(user.roleType)) throw new ApiError(403, 'FORBIDDEN', '仅供应商或甲方PM可导入验收数据')
+  if (![1, 3].includes(user.roleType)) throw new ApiError(403, 'FORBIDDEN', '仅供应商或管理员可导入验收数据')
   const rows = await readSheetRows(body.fileData, body.fileName)
   assertRowsReady(rows)
   if (rows.length - 1 > ACCEPTANCE_MAX_ROWS) {
@@ -190,7 +190,7 @@ export async function parseAcceptanceExcel(user, body) {
 // 目标：识别出可结算的行 + 给出建议公式（有单价→数量*单价；只有金额→金额）
 export async function parseSettlementSheet(user, body) {
   if (![1, 3, 14].includes(user.roleType)) {
-    throw new ApiError(403, 'FORBIDDEN', '仅供应商、财务或甲方PM可导入待结算单')
+    throw new ApiError(403, 'FORBIDDEN', '仅供应商、财务或管理员可导入待结算单')
   }
   const rows = await readSheetRows(body.fileData, body.fileName)
   assertRowsReady(rows)

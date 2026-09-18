@@ -3,7 +3,7 @@ import { ApiError } from '../lib/http.js'
 import { nowText } from '../lib/time.js'
 
 function requireDatasetRole(user) {
-  if (![1, 6, 7].includes(user.roleType)) throw new ApiError(403, 'FORBIDDEN', '仅甲方PM、算法工程师或数据清洗员可访问数据集')
+  if (![1, 6, 7].includes(user.roleType)) throw new ApiError(403, 'FORBIDDEN', '仅管理员、算法工程师或数据清洗员可访问数据集')
 }
 
 // 数据集 = 含有已验收(accepted)数据的任务（算法仅见验收，清洗员看全部）

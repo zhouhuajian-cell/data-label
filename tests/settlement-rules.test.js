@@ -25,7 +25,7 @@ const bizEngineer = { id: ENGINEER_ID, roleType: 13, roleTypes: [13], supplierId
 const finance = { id: 304, roleType: 14, supplierId: null, userName: '财务专员' }
 const leader = { id: 305, roleType: 15, supplierId: null, userName: '负责人' }
 const party = { id: 308, roleType: 17, roleTypes: [17], supplierId: null, userName: '柏川' }
-const pm = { id: 307, roleType: 1, supplierId: null, userName: '甲方PM' }
+const pm = { id: 307, roleType: 1, supplierId: null, userName: '管理员' }
 
 // 统结方确认助手：按当前"供应商确认合计"等额提交（增幅 0%，必然在 3.5% 红线内）
 // 统结方导入提交 → 财务二次确认（链上现在是两步）

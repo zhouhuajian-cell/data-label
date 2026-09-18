@@ -6,7 +6,7 @@ import { nowText } from '../lib/time.js'
 const CLEANER_ROLE = 7
 
 function requireCleanerOrPM(user) {
-  if (![1, 7].includes(user.roleType)) throw new ApiError(403, 'FORBIDDEN', '仅数据清洗人员或甲方PM可操作')
+  if (![1, 7].includes(user.roleType)) throw new ApiError(403, 'FORBIDDEN', '仅数据清洗人员或管理员可操作')
 }
 
 // 场景维度管理（PM 可增删改）
@@ -15,7 +15,7 @@ export function getScenarioDimensions(user) {
 }
 
 export function saveScenarioDimension(user, body) {
-  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅甲方PM可编辑场景维度')
+  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅管理员可编辑场景维度')
   const label = String(body.label || '').trim()
   const tags = Array.isArray(body.tags) ? body.tags.filter(t => typeof t === 'string' && t.trim()) : []
   if (!label || !tags.length) throw new ApiError(422, 'VALIDATION_ERROR', '维度和标签不能为空')
@@ -32,7 +32,7 @@ export function saveScenarioDimension(user, body) {
 }
 
 export function deleteScenarioDimension(user, id) {
-  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅甲方PM可删除场景维度')
+  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅管理员可删除场景维度')
   const idx = scenarioDimensions.findIndex(d => d.id === id)
   if (idx < 0) throw new ApiError(404, 'NOT_FOUND', '维度不存在')
   scenarioDimensions.splice(idx, 1)

@@ -85,7 +85,7 @@ const DEFAULT_PASSWORD = '123456'
 
 // 可分配角色（数据生产域角色随 FEATURES.DATA_MODULE 一并保留，不在界面暴露无效项）
 const roleOptions = [
-  { value: ROLE_TYPE.CLIENT_PM, label: '甲方PM' },
+  { value: ROLE_TYPE.CLIENT_PM, label: '管理员' },
   { value: ROLE_TYPE.VENDOR_TL, label: '供应商团队长' },
   { value: ROLE_TYPE.BIZ_ENGINEER, label: '业务工程师' },
   { value: ROLE_TYPE.FINANCE, label: '财务' },

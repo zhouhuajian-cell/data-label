@@ -63,12 +63,12 @@ export function feishuQueueSize() {
 }
 
 export function getWebhookConfig(user) {
-  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅甲方PM可管理')
+  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅管理员可管理')
   return { webhooks: feishuConfig.webhooks, enabled: feishuConfig.enabled }
 }
 
 export function setWebhookConfig(user, body) {
-  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅甲方PM可管理')
+  if (user.roleType !== 1) throw new ApiError(403, 'FORBIDDEN', '仅管理员可管理')
   if (body.enabled !== undefined) feishuConfig.enabled = !!body.enabled
   if (Array.isArray(body.webhooks)) feishuConfig.webhooks = body.webhooks.map(w => ({ name: String(w.name||'').trim(), url: String(w.url||'').trim() })).filter(w => w.url)
   auditLogs.push({ action: 'feishu.webhook', actorId: user.id, count: feishuConfig.webhooks.length, at: new Date().toISOString() })

@@ -8,7 +8,7 @@ import { hashPassword } from '../lib/password.js'
 export const DEFAULT_PASSWORD = '123456'
 
 function requirePM(user) {
-  if (!roleTypesOf(user).includes(1)) throw new ApiError(403, 'FORBIDDEN', '仅甲方PM可管理用户')
+  if (!roleTypesOf(user).includes(1)) throw new ApiError(403, 'FORBIDDEN', '仅管理员可管理用户')
 }
 
 function toSafeUser(u) {

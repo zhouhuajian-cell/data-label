@@ -261,7 +261,7 @@ function billSummary(bill) {
 
 // ===== 信息传递统一口径：角色-姓名（如「业务工程师-彭晓蕾」「财务-张海霞」「统结方-柏川」）=====
 const USER_ROLE_NAMES = [
-  [ROLE.CLIENT_PM, '甲方PM'], [ROLE.FINANCE, '财务'], [ROLE.LEADER, '负责人'],
+  [ROLE.CLIENT_PM, '管理员'], [ROLE.FINANCE, '财务'], [ROLE.LEADER, '负责人'],
   [ROLE.PERCEPTION, '算法'], [ROLE.BIZ_ENGINEER, '业务工程师'],
   [ROLE.SETTLEMENT, '统结方'], [ROLE.OA_SETTLEMENT, 'OA结算专员'], [ROLE.VENDOR_TL, '供应商']
 ]
@@ -735,7 +735,7 @@ function resolveProject(body) {
 export async function createBill(user, body) {
   requireBillRoles(user)
   if (!canOriginate(user)) {
-    throw new ApiError(403, 'FORBIDDEN', '仅供应商或甲方PM可创建结算单')
+    throw new ApiError(403, 'FORBIDDEN', '仅供应商或管理员可创建结算单')
   }
   const batchName = String(body.batchName || '').trim()
   if (!batchName) throw new ApiError(422, 'VALIDATION_ERROR', '请填写批次名称')
@@ -1143,7 +1143,7 @@ export async function calculateBill(user, id, body = {}) {
   const bill = findBillOr404(id)
   assertSupplierVisible(user, bill)
   if (!hasAnyRole(user, [ROLE.FINANCE, ROLE.CLIENT_PM])) {
-    throw new ApiError(403, 'FORBIDDEN', '仅财务或甲方PM可进行财务核算')
+    throw new ApiError(403, 'FORBIDDEN', '仅财务或管理员可进行财务核算')
   }
   if (bill.status !== 'PENDING_FINANCE') {
     throw new ApiError(409, 'BILL_STATE_CONFLICT', `仅「待财务确认」状态的单据可核算（当前：${BILL_STATUS[bill.status] || bill.status}）`)

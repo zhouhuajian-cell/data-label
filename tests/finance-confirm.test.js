@@ -33,7 +33,7 @@ const finance = { id: 204, roleType: 14, supplierId: null, userName: '财务专�
 const leader = { id: 205, roleType: 15, supplierId: null, userName: '项目负责人' }
 const party = { id: 209, roleType: 17, roleTypes: [17], supplierId: null, userName: '柏川' }
 const perception = { id: 206, roleType: 16, supplierId: null, userName: '感知工程师' }
-const pm = { id: 207, roleType: 1, supplierId: null, userName: '甲方PM' }
+const pm = { id: 207, roleType: 1, supplierId: null, userName: '管理员' }
 
 // 统结方确认助手：按当前"供应商确认合计"等额提交（增幅 0%，必然在 3.5% 红线内）
 // 统结方导入提交 → 财务二次确认（链上现在是两步）
@@ -132,7 +132,7 @@ test('禁止跳步：业务工程师未确认前财务不能确认', async () =>
   assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_BIZ')
 })
 
-test('非确认链角色不能确认（供应商/甲方PM 无确认权）', async () => {
+test('非确认链角色不能确认（供应商/管理员 无确认权）', async () => {
   const bill = await makeAssignedBill()
   await assert.rejects(() => confirmBill(supplierA, bill.id, {}), err => err.code === 'FORBIDDEN')
   await assert.rejects(() => confirmBill(pm, bill.id, {}), err => err.code === 'FORBIDDEN')
@@ -334,7 +334,7 @@ test('每个环节都有提醒：推送对象为「下一节点角色」，文�
   mark = notifications.length
   await confirmBill({ id: OA_ID, roleType: 18, roleTypes: [18], userName: '彭桂苹' }, bill.id, {})
   assert.equal(sentTo(mark, [supplierA.id]).length >= 1, true, '末节点通过应回执提交人（createdBy）')
-  assert.equal(sentTo(mark, pmIds).length >= 1, true, '末节点通过应通知甲方PM')
+  assert.equal(sentTo(mark, pmIds).length >= 1, true, '末节点通过应通知管理员')
   assert.equal(sentTo(mark, ownerSupplierIds).length >= 1, true, '末节点通过应通知本单所属供应商')
   // 关键：只通知本单所属供应商（按姓名匹配），不能群发给其他供应商账号
   assert.ok(otherSupplierIds.length > 0, '种子里应存在其他供应商账号，否则隔离断言无意义')
