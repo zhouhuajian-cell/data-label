@@ -171,7 +171,6 @@ export function formatMoney(value) {
   const decLen = String(trimmed).split('.')[1]?.length || 0
   const digits = Math.min(10, Math.max(2, decLen))
   return n.toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-})
 }
 
 // 纯供应商账号（只持供应商角色）：工作台就是「项目管理」（建项目 + 上传验收数据）
