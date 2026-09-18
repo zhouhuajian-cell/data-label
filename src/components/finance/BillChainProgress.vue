@@ -77,7 +77,7 @@ const summaryText = computed(() => {
 </script>
 
 <style scoped>
-.chain { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; }
+.chain { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; justify-content: center; }
 .chain-node {
   width: 18px;
   height: 18px;

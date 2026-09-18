@@ -143,14 +143,14 @@
                  右栏约 700px，装不下「进度链 + 当前环节」两列，故保留后者（含角色-姓名，
                  与结算页口径一致），进度明细在「查看」弹窗内可见 -->
             <el-table :data="projectBills" border size="small">
-              <el-table-column label="结算单号" prop="billNo" width="128" />
-              <el-table-column label="批次名称" prop="batchName" width="110" show-overflow-tooltip />
-              <el-table-column label="供应商" prop="supplierName" width="92" show-overflow-tooltip />
-              <el-table-column label="金额(元)" width="102" align="right">
+              <el-table-column label="结算单号" prop="billNo" width="128" align="center" />
+              <el-table-column label="批次名称" prop="batchName" width="110" align="center" show-overflow-tooltip />
+              <el-table-column label="供应商" prop="supplierName" width="92" align="center" show-overflow-tooltip />
+              <el-table-column label="金额(元)" width="102" align="center">
                 <template #default="s"><span class="money">¥{{ formatMoney(s.row.totalAmount) }}</span></template>
               </el-table-column>
               <!-- 当前环节：一行「待XX确认-姓名」（如「待算法确认-马成男」） -->
-              <el-table-column label="当前环节" width="176">
+              <el-table-column label="当前环节" width="176" align="center">
                 <template #default="s">
                   <span class="stage-text" :class="`stage-text--${getBillStatusType(s.row.status)}`"
                     :title="s.row.currentHandler || getBillStatusText(s.row.status)">
@@ -158,7 +158,7 @@
                   </span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="68">
+              <el-table-column label="操作" width="68" align="center">
                 <template #default="s"><el-button text size="small" type="primary" @click="openProjectBill(s.row.id)">查看</el-button></template>
               </el-table-column>
               <template #empty>

@@ -61,26 +61,26 @@
       </div>
 
       <el-table v-loading="loading" :data="list" border size="small">
-        <el-table-column label="结算单号" prop="billNo" width="128" />
+        <el-table-column label="结算单号" prop="billNo" width="128" align="center" />
         <!-- 项目：弹性列，宽度由 el-table 按剩余空间分配（空间不足时自动压缩并截断） -->
-        <el-table-column label="项目" prop="projectName" min-width="140" show-overflow-tooltip />
-        <el-table-column label="批次名称" prop="batchName" min-width="72" show-overflow-tooltip />
-        <el-table-column label="供应商" prop="supplierName" width="86" show-overflow-tooltip />
-        <el-table-column label="金额(元)" width="102" align="right">
+        <el-table-column label="项目" prop="projectName" min-width="140" align="center" show-overflow-tooltip />
+        <el-table-column label="批次名称" prop="batchName" min-width="72" align="center" show-overflow-tooltip />
+        <el-table-column label="供应商" prop="supplierName" width="86" align="center" show-overflow-tooltip />
+        <el-table-column label="金额(元)" width="102" align="center">
           <template #default="s"><span class="money">¥{{ formatMoney(s.row.totalAmount) }}</span></template>
         </el-table-column>
         <!-- 进度列：圆点 + 短标签，不必悬停即可看懂卡在哪一环（原 150px 挤 7 个点） -->
-        <el-table-column label="结算进度" width="176">
+        <el-table-column label="结算进度" width="176" align="center">
           <template #default="s"><BillChainProgress :chain="s.row.chain" :status="s.row.status" labelled /></template>
         </el-table-column>
         <!-- 当前环节：一行「待XX确认-姓名」（如「待算法确认-马成男」）；列宽弹性铺满右侧剩余空间 -->
-        <el-table-column label="当前环节" min-width="176" class-name="cell-nowrap">
+        <el-table-column label="当前环节" min-width="176" align="center" class-name="cell-nowrap">
           <template #default="s">
             <span class="stage-text" :class="`stage-text--${getBillStatusType(s.row.status)}`"
               :title="stageLine(s.row)">{{ stageLine(s.row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="96">
+        <el-table-column label="操作" width="96" align="center">
           <template #default="s">
             <div class="op-cell">
               <el-button v-if="s.row.isMyTurn" text type="success" @click="openDetail(s.row.id, true)">去确认</el-button>
@@ -399,7 +399,7 @@ function syncProjectOptionsFromQuery(projectId) {
 .stage-text--danger { background: rgba(214, 69, 80, 0.12); color: #d64550; }
 .stage-text--info { background: rgba(144, 147, 153, 0.14); color: #73767a; }
 /* 操作列：按钮排一行，不因换行把行高撑到两倍 */
-.op-cell { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.op-cell { display: flex; align-items: center; justify-content: center; gap: 2px; white-space: nowrap; }
 .op-cell :deep(.el-button) { padding: 2px 4px; }
 .op-urge { margin-left: 0 !important; }
 .pager { margin-top: 12px; justify-content: flex-end; }
