@@ -15,30 +15,23 @@
       </div>
 
       <el-form label-width="86px" size="default" class="mb14" label-position="top">
-        <!-- 统结方：这些信息取自单据，无需填写 -->
-        <div v-if="settleMode" class="tip mb8">
-          以下信息取自本单据，无需填写：项目 <b>{{ project?.name || '—' }}</b> ·
-          批次 <b>{{ settleBillInfo?.batchName || '—' }}</b> ·
-          结算周期 <b>{{ settleBillInfo?.period || '—' }}</b> ·
-          供应商 <b>{{ settleBillInfo?.supplierName || '—' }}</b>
-        </div>
         <el-row :gutter="14">
           <el-col :xs="24" :sm="12" :md="8">
-            <el-form-item v-if="!settleMode" label="批次名称" required>
-              <el-input v-model="form.batchName" placeholder="如：2026-08 验收数据" maxlength="60" />
+            <el-form-item label="批次名称" required>
+              <el-input v-model="form.batchName" :disabled="settleMode" placeholder="如：2026-08 验收数据" maxlength="60" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12" :md="8">
-            <el-form-item v-if="!settleMode" label="结算周期" required>
-              <el-date-picker v-model="form.period" type="month" value-format="YYYY-MM" placeholder="选择月份" style="width:100%" />
+            <el-form-item label="结算周期" required>
+              <el-date-picker v-model="form.period" :disabled="settleMode" type="month" value-format="YYYY-MM" placeholder="选择月份" style="width:100%" />
             </el-form-item>
-        <div class="tip">统结对比按「同项目 + 同结算周期」汇总，必填</div>
+        <div v-if="!settleMode" class="tip">统结对比按「同项目 + 同结算周期」汇总，必填</div>
           </el-col>
           <el-col :xs="24" :sm="12" :md="8">
-            <el-form-item v-if="!settleMode" label="供应商">
+            <el-form-item label="供应商">
               <!-- 供应商身份以「姓名」为准：供应商账号固定显示自身姓名，甲方PM 才可代选 -->
-              <el-input v-if="!isPm" :model-value="userStore.userInfo.userName" disabled placeholder="本账号姓名" style="width:100%" />
-              <el-select v-else v-model="form.supplierName" placeholder="选择供应商（姓名）" clearable filterable allow-create style="width:100%">
+              <el-input v-if="!isPm" :model-value="settleMode ? form.supplierName : userStore.userInfo.userName" disabled placeholder="本账号姓名" style="width:100%" />
+              <el-select v-else v-model="form.supplierName" :disabled="settleMode" placeholder="选择供应商（姓名）" clearable filterable allow-create style="width:100%">
                 <el-option v-for="name in supplierOptions" :key="name" :label="name" :value="name" />
               </el-select>
             </el-form-item>
@@ -325,9 +318,13 @@ watch(() => props.modelValue, async (open) => {
   importMode.value = 'manual'
   rows.value = []
   Object.assign(form, {
-    batchName: '', period: '', remark: '', billNo: '',
-    // 供应商身份以姓名口径：非PM 账号直接显示本账号姓名，PM 自行指定
-    supplierName: isPm.value ? '' : (userStore.userInfo.userName || '')
+    // 统结模式：项目/批次/周期/供应商都来自本单据（只读展示，格式与供应商提交时一致）
+    batchName: props.settleMode ? (props.settleBillInfo?.batchName || '') : '',
+    period: props.settleMode ? (props.settleBillInfo?.period || '') : '',
+    remark: '', billNo: '',
+    supplierName: props.settleMode
+      ? (props.settleBillInfo?.supplierName || '')
+      : (isPm.value ? '' : (userStore.userInfo.userName || ''))
   })
   costCenters.value = []
   attachments.value = []
