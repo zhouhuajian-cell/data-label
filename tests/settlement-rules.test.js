@@ -362,3 +362,79 @@ test('统结方提交（导入解析）→ 财务二次确认：超 3.5% 报警�
   assert.equal(cmp.exceeded, false)
   assert.equal(cmp.ratePercent, 2)
 })
+
+// ===== 独立结算身份（角色 19）：与统结方无合同关系的供应商 =====
+// 其单据财务确认后直接进入负责人，跳过「统结方提交」与配套的「财务二次确认」
+test('独立结算身份：财务后直达负责人，且不计入统结对比基数', async () => {
+  const EXEMPT = '康尼瑞行'
+  // 身份由账号角色驱动：给该供应商账号勾选「独立结算」(19) 即可，无需改代码
+  const exemptUser = { id: 310, roleType: 3, roleTypes: [3, 19], userName: EXEMPT }
+  if (!users.some(u => u.id === 310)) {
+    users.push({ id: 310, username: 'kognic_t', userName: EXEMPT, roleType: 3, roleTypes: [3, 19], disabled: false })
+  }
+  const perception = { id: 311, roleType: 16, roleTypes: [16], userName: '算法' }
+  const partyUploader = { ...party, roleTypes: [3, 17] }   // 统结方也要能上传（生产上是 [3,17]）
+  const PERIOD = '2033-11'
+
+  const mk = async (user, price) => {
+    const b = await createBill(user, {
+      projectId: PROJECT_ID,
+      batchName: '豁免批次-' + (++seq),
+      period: PERIOD,
+      attachments: [{ storedName: 'bills/fixture.csv', originalName: 'f.csv', size: 1 }],
+      costCenters: [{ name: 'M57', ratio: 100 }],
+      items: [{ taskName: 'K-1', quantity: 10, unitPrice: price }]
+    })
+    await assignEngineer(finance, b.id, { engineerId: ENGINEER_ID })
+    return b
+  }
+
+  const exemptBill = await mk(exemptUser, 100)
+  const normalBill = await mk(supplierA, 200)
+
+  // 1) 链路只剩 5 个环节：工程师 → 财务 → 负责人 → 算法 → OA
+  const row = listBills(pm, new URLSearchParams({ pageSize: '100' })).items.find(b => b.id === exemptBill.id)
+  assert.deepEqual(row.chain.map(c => c.key), ['BIZ', 'FINANCE', 'LEADER', 'PERCEPTION', 'OA'])
+  assert.equal(row.stageCount, 5, '环节总数应为 5')
+
+  // 2) 财务确认后直达负责人（关键：不经过统结方与财务二次确认）
+  await confirmBill(bizEngineer, exemptBill.id, {})
+  assert.equal((await getBillDetail(pm, exemptBill.id)).status, 'PENDING_FINANCE')
+  await calculateBill(finance, exemptBill.id, { deduction: 0, taxRate: 0 })
+  await confirmBill(finance, exemptBill.id, {})
+
+  const afterFinance = await getBillDetail(pm, exemptBill.id)
+  assert.equal(afterFinance.status, 'PENDING_LEADER', '财务后应直接到负责人')
+  assert.deepEqual(afterFinance.stages.map(s => s.key), ['BIZ', 'FINANCE', 'LEADER', 'PERCEPTION', 'OA'])
+  assert.equal(afterFinance.chainIndex, 2, '当前环节在链中的位置应为负责人')
+
+  // 3) 统结方不是本单链路角色 → 无权确认
+  await assert.rejects(() => confirmBill(party, exemptBill.id, {}), err => err.code === 'FORBIDDEN')
+
+  // 4) 后续环节照常走完，chainIndex 归位到链长
+  await confirmBill(leader, exemptBill.id, {})
+  assert.equal((await getBillDetail(pm, exemptBill.id)).status, 'PENDING_PERCEPTION')
+  await confirmBill(perception, exemptBill.id, {})
+  await confirmBill({ id: OA_ID, roleType: 18, roleTypes: [18], userName: '彭桂苹' }, exemptBill.id, {})
+  const done = await getBillDetail(pm, exemptBill.id)
+  assert.equal(done.status, 'APPROVED')
+  assert.equal(done.chainIndex, 5, '走完后 chainIndex = 链长')
+
+  // 5) 统结对比基数：不含免统结供应商，仍含普通供应商
+  const partyBill = await mk(partyUploader, 300)
+  const pb = await getBillDetail(party, partyBill.id)
+  const baseNames = pb.supplierConfirmedTotal.suppliers
+  assert.equal(baseNames.includes(EXEMPT), false, '康尼瑞行不应计入统结对比基数')
+  assert.equal(baseNames.includes(supplierA.userName), true, '普通供应商应计入统结对比基数')
+  assert.equal(normalBill.status, 'PENDING_BIZ')
+
+  // 6) 身份来自角色：给原本走统结的供应商也勾上「独立结算」→ 新单即跳过统结环节
+  const promoted = users.find(u => u.userName === supplierA.userName)
+  const backup = promoted.roleTypes
+  promoted.roleTypes = [...new Set([...(promoted.roleTypes || [promoted.roleType]), 19])]
+  const promotedBill = await mk(supplierA, 400)
+  const promotedRow = listBills(pm, new URLSearchParams({ pageSize: '100' })).items.find(b => b.id === promotedBill.id)
+  assert.deepEqual(promotedRow.chain.map(c => c.key), ['BIZ', 'FINANCE', 'LEADER', 'PERCEPTION', 'OA'],
+    '勾选独立结算后新单应跳过统结环节')
+  promoted.roleTypes = backup   // 还原，避免影响其他用例
+})

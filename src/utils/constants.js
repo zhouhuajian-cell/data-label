@@ -46,7 +46,9 @@ export const ROLE_TYPE = {
   LEADER: 15,
   PERCEPTION: 16,
   SETTLEMENT: 17,
-  OA_SETTLEMENT: 18
+  OA_SETTLEMENT: 18,
+  // 独立结算：供应商侧身份——与统一结算方无合同，单据财务确认后直达负责人
+  INDEPENDENT_SETTLE: 19
 }
 
 export const ROLE_LABELS = {
@@ -61,7 +63,8 @@ export const ROLE_LABELS = {
   15: '负责人',
   16: '感知工程师',
   17: '统一结算方',
-  18: 'OA结算专员'
+  18: 'OA结算专员',
+  19: '独立结算'
 }
 
 // ===== 模块开关 =====
@@ -125,7 +128,7 @@ export function getBillStatusType(status) { return BILL_STATUS_TYPE_MAP[status] 
 // ===== 多角色 =====
 // 账号可持多个角色（roleTypes），roleType 为主角色（= roleTypes[0]）
 // 与 server/lib/roles.js 保持同一口径
-export const ALL_ROLES = [1, 2, 3, 4, 6, 7, 13, 14, 15, 16, 17, 18]
+export const ALL_ROLES = [1, 2, 3, 4, 6, 7, 13, 14, 15, 16, 17, 18, 19]
 
 export function roleTypesOf(userOrRole) {
   if (userOrRole === null || userOrRole === undefined) return []

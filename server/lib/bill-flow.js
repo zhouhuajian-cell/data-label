@@ -18,7 +18,11 @@ export const ROLE = {
   PERCEPTION: 16,
   SETTLEMENT: 17,
   // OA 结算专员：流程全部走完后，负责把该单录入 OA 系统做最新结算（非确认节点，只接通知/待办）
-  OA_SETTLEMENT: 18
+  OA_SETTLEMENT: 18,
+  // 独立结算：供应商侧的身份标记——与统一结算方无合同关系，
+  // 其单据财务确认后直达负责人（跳过「统结方提交」与「财务二次确认」）。
+  // 注意：它不改变数据权限，仍是供应商口径（见 isSupplierOnly）。
+  INDEPENDENT_SETTLE: 19
 }
 
 // 确认顺序即数组顺序，禁止跳步
@@ -26,9 +30,11 @@ export const BILL_STAGES = [
   { key: 'BIZ', label: '工程师确认', short: '工程师', roleName: '业务工程师', roleType: ROLE.BIZ_ENGINEER, status: 'PENDING_BIZ' },
   { key: 'FINANCE', label: '财务确认', short: '财务', roleName: '财务', roleType: ROLE.FINANCE, status: 'PENDING_FINANCE' },
   // 统一结算方（柏川）：提交本周期总金额，与各供应商确认金额合计做 3.5% 增幅校验
-  { key: 'SETTLEMENT', label: '统结方提交', short: '统结方', roleName: '统结方', roleType: ROLE.SETTLEMENT, status: 'PENDING_SETTLEMENT' },
+  // optional：与统结方无合同关系的供应商跳过此环节（见 SETTLEMENT_EXEMPT_SUPPLIERS）
+  { key: 'SETTLEMENT', label: '统结方提交', short: '统结方', roleName: '统结方', roleType: ROLE.SETTLEMENT, status: 'PENDING_SETTLEMENT', optional: true },
   // 统结方提交后：供应商与统结方的结果汇总到财务做二次确认（3.5% 增幅在此校验）
-  { key: 'FINANCE2', label: '财务二次确认', short: '财务二次', roleName: '财务', roleType: ROLE.FINANCE, status: 'PENDING_FINANCE2' },
+  // optional：二次确认是为统结对比服务的，不走统结的供应商一并跳过
+  { key: 'FINANCE2', label: '财务二次确认', short: '财务二次', roleName: '财务', roleType: ROLE.FINANCE, status: 'PENDING_FINANCE2', optional: true },
   { key: 'LEADER', label: '负责人确认', short: '负责人', roleName: '负责人', roleType: ROLE.LEADER, status: 'PENDING_LEADER' },
   { key: 'PERCEPTION', label: '算法确认', short: '算法', roleName: '算法', roleType: ROLE.PERCEPTION, status: 'PENDING_PERCEPTION' },
   // 末环节：OA 结算专员（彭桂苹）走 OA 系统最新结算后确认，确认完单据才算完成
@@ -45,6 +51,47 @@ export const BILL_STATUS = {
   PENDING_OA: '待OA结算确认',
   APPROVED: '已通过',
   REJECTED: '已驳回'
+}
+
+// ===== 独立结算（不经统结方）=====
+// 与统一结算方之间没有合同关系的供应商：其单据财务确认后直接进入负责人，
+// 跳过「统结方提交」与配套的「财务二次确认」（后者只为统结对比服务）。
+// 判定依据是单据字段 settlementExempt —— 由账号是否持「独立结算」角色(19)解析而来，
+// 在创建单据时写入、服务启动时对历史单据回填（见 services/bills.js）。
+// 之所以快照到单据上：账号角色变更不应悄悄改写已有单据的流转路径。
+export function isSettlementExempt(bill) {
+  return bill?.settlementExempt === true
+}
+
+// 该环节对本单是否适用（optional 环节仅对免统结供应商跳过）
+export function isStageApplicable(stage, bill) {
+  if (!stage) return false
+  if (!stage.optional) return true
+  return !isSettlementExempt(bill)
+}
+
+// 本单实际要走的环节（保留原始数组下标，供 confirms.stage 与前端展示用）
+export function stageListOf(bill) {
+  return BILL_STAGES
+    .map((s, index) => ({ ...s, index }))
+    .filter(s => isStageApplicable(s, bill))
+}
+
+// 从 from（含）起向后找首个适用环节的下标；都不适用则返回 BILL_STAGES.length（表示链路走完）
+export function nextApplicableIndex(bill, from = 0) {
+  for (let i = Math.max(0, from); i < BILL_STAGES.length; i++) {
+    if (isStageApplicable(BILL_STAGES[i], bill)) return i
+  }
+  return BILL_STAGES.length
+}
+
+// 当前环节下标：对历史单据或豁免名单变更做归一（指向已豁免环节时向后推进），
+// 保证 currentStage 始终落在本单真正需要处理的环节上
+export function currentStageIndex(bill) {
+  const idx = Number(bill?.currentStage) || 0
+  if (idx >= BILL_STAGES.length) return BILL_STAGES.length
+  if (isStageApplicable(BILL_STAGES[idx], bill)) return idx
+  return nextApplicableIndex(bill, idx + 1)
 }
 
 // 供应商可操作（编辑/删除/撤回）的状态：尚未有任何确认动作
@@ -66,7 +113,7 @@ export function computeRowAmount({ quantity = 0, unitPrice = 0, amount = 0 } = {
 // 当前待确认阶段；已通过/已驳回时返回 null
 export function currentStage(bill) {
   if (bill.status === 'APPROVED' || bill.status === 'REJECTED') return null
-  return BILL_STAGES[bill.currentStage] || null
+  return BILL_STAGES[currentStageIndex(bill)] || null
 }
 
 // 由 currentStage + 驳回标记推导状态（唯一入口，禁止直接赋 status）
@@ -138,7 +185,8 @@ export function assertConfirmable(user, bill) {
   }
   // 轮到本人节点：不再按供应商口径隔离
   // （统一结算方需要处理各供应商停在统结方节点的单据）
-  return bill.currentStage
+  // 返回归一后的下标：免统结供应商的历史单据若停在统结环节，会自动落到下一个适用环节
+  return currentStageIndex(bill)
 }
 
 // 是否可代建/管理（供应商或甲方PM）

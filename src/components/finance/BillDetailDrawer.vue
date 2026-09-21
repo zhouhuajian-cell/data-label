@@ -11,6 +11,9 @@
             <el-step title="供应商提交" :description="detail.createdByName" />
             <el-step v-for="st in detail.stages" :key="st.key" :title="st.label" :description="stepDesc(st)" :status="stepStatus(st)" />
           </el-steps>
+          <!-- 独立结算（角色19）：与统结方无合同，链路里没有统结方/财务二次确认两环节 -->
+          <el-alert v-if="detail.settlementExempt" type="info" :closable="false" show-icon class="mb12"
+            title="本单为独立结算：不经统一结算方，财务确认后直接流转至负责人。" />
 
           <el-descriptions :column="descColumns" border size="small" class="mb16">
             <el-descriptions-item label="所属项目">{{ detail.projectName || '-' }}</el-descriptions-item>
@@ -290,7 +293,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { confirmDeleteTwice, esc } from '@/utils/confirm'
 import { Bell } from '@element-plus/icons-vue'
 import { Download } from '@element-plus/icons-vue'
-import { BILL_STAGES, formatMoney, ROLE_TYPE, hasRole } from '@/utils/constants'
+import { formatMoney, ROLE_TYPE, hasRole } from '@/utils/constants'
 import { useUserStore } from '@/store/user'
 import { getBillDetailApi, confirmBillApi, rejectBillApi, resubmitBillApi, deleteBillApi, urgeBillApi, resubmitSettlementApi } from '@/api/finance'
 import { useResponsive } from '@/composables/useResponsive'
@@ -375,17 +378,19 @@ const records = computed(() => {
     .sort((a, b) => String(a.at).localeCompare(String(b.at)))
 })
 
+// 下一环节：按本单实际链路取（免统结供应商跳过统结方/财务二次确认，
+// 故不能用前端固定的 BILL_STAGES，一律用后端返回的 stages + chainIndex）
 const nextStageLabel = computed(() => {
   if (!detail.value) return ''
-  const next = BILL_STAGES[detail.value.currentStage + 1]
+  const list = detail.value.stages || []
+  const next = list[(detail.value.chainIndex ?? 0) + 1]
   return next ? next.label : ''
 })
 
 // el-steps 的 active：第0步为"供应商提交"，之后每完成一个确认节点 +1
 const activeStep = computed(() => {
   if (!detail.value) return 0
-  if (detail.value.status === 'APPROVED') return BILL_STAGES.length + 1
-  return detail.value.currentStage + 1
+  return (detail.value.chainIndex ?? 0) + 1
 })
 
 // 步骤描述：被驳回的节点明确写"谁 已驳回"，其余显示处理人/确认人

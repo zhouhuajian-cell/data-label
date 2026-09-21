@@ -4,7 +4,9 @@
 import { ApiError } from './http.js'
 
 // 平台全部合法角色号（与 src/utils/constants.js 的 ROLE_TYPE 一致）
-export const ALL_ROLES = [1, 2, 3, 4, 6, 7, 13, 14, 15, 16, 17, 18]
+export const ALL_ROLES = [1, 2, 3, 4, 6, 7, 13, 14, 15, 16, 17, 18,
+  // 19 独立结算：与统一结算方无合同关系的供应商，其单据不经统结方（见 bill-flow.js）
+  19]
 
 // 取账号的全部角色；未配置 roleTypes 时退回主角色
 // 主角色恒排在首位（roleTypes[0] === roleType），便于按主角色做兜底判断

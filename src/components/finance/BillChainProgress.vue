@@ -66,7 +66,7 @@ const tagClass = computed(() => {
 const summaryText = computed(() => {
   const total = props.chain.length
   const done = props.chain.filter(s => s.done).length
-  if (approved.value) return `四级确认已全部通过（${total}/${total}）`
+  if (approved.value) return `确认流程已全部通过（${total}/${total}）`
   if (rejected.value) {
     const err = props.chain.find(s => s.error)
     return `已被「${err ? err.short || err.label : '某节点'}」驳回（已确认 ${done}/${total}）`

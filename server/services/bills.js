@@ -16,7 +16,9 @@ import { notifyRoles, notifyByRole, createNotification, markRefReadForUsers } fr
 import {
   BILL_STAGES, BILL_STATUS, ROLE,
   currentStage, deriveStatus, assertSupplierVisible, assertConfirmable, computeRowAmount, stageCount,
-  canOriginate, isSupplierOnly, isMyTurn, sameSupplier
+  canOriginate, isSupplierOnly, isMyTurn, sameSupplier,
+  // 独立结算：持该身份(角色19)的供应商，单据跳过「统结方提交」与「财务二次确认」
+  isSettlementExempt, stageListOf, nextApplicableIndex, currentStageIndex
 } from '../lib/bill-flow.js'
 import { hasRole, hasAnyRole } from '../lib/roles.js'
 import { ACCEPTANCE_MAX_ROWS } from './excel.js'
@@ -331,6 +333,13 @@ function notifyAssignNeeded(bill) {
 export async function repairBillStages() {
   let fixed = 0
   for (const bill of bills) {
+    // 独立结算身份回填：账号新增/取消「独立结算」角色后，历史单据一并跟上
+    const exempt = resolveSettlementExempt(bill.supplierName)
+    if (bill.settlementExempt !== exempt) {
+      bill.settlementExempt = exempt
+      await saveBill(bill)
+      fixed++
+    }
     // 已完成/历史单据：补齐「供应商提交」记录（新字段，老单据没有）
     if (!Array.isArray(bill.supplierSubmits) || !bill.supplierSubmits.length) {
       bill.supplierSubmits = supplierSubmitsOf({ ...bill, supplierSubmits: null }).map(r => ({
@@ -348,7 +357,12 @@ export async function repairBillStages() {
     }
     const done = new Set((bill.confirms || []).map(c => c.stageKey))
     let idx = 0
-    while (idx < BILL_STAGES.length && done.has(BILL_STAGES[idx].key)) idx++
+    // 只按「对本单适用」的环节推进：免统结供应商的统结两环节直接跳过
+    while (true) {
+      idx = nextApplicableIndex(bill, idx)
+      if (idx >= BILL_STAGES.length || !done.has(BILL_STAGES[idx].key)) break
+      idx += 1
+    }
     const status = deriveStatus({ currentStage: idx, rejected: bill.rejected })
     if (bill.currentStage !== idx || bill.status !== status) {
       bill.currentStage = idx
@@ -547,20 +561,32 @@ function confirmsOfCurrentRound(bill) {
   return (bill.confirms || []).filter(c => typeof c.round !== 'number' || c.round === round)
 }
 
+// 供应商是否为「独立结算」（持角色 19）：与统结方无合同，单据不经统结方。
+// 口径为单据的 supplierName（= 供应商账号显示名）匹配账号所持角色。
+function resolveSettlementExempt(supplierName) {
+  const name = String(supplierName || '').trim()
+  if (!name) return false
+  return users.some(u => !u.disabled
+    && String(u.userName || '').trim() === name
+    && hasRole(u, ROLE.INDEPENDENT_SETTLE))
+}
+
 function buildChain(bill) {
   const rejected = bill.status === 'REJECTED'
   const lastRejectStage = rejected
     ? ((bill.rejections || [])[bill.rejections.length - 1] || {}).stage ?? null
     : null
   const currentConfirms = confirmsOfCurrentRound(bill)
-  return BILL_STAGES.map((s, i) => ({
+  const activeIndex = currentStageIndex(bill)
+  // 只列本单实际要走的环节：免统结供应商不含「统结方提交」与「财务二次确认」
+  return stageListOf(bill).map(s => ({
     key: s.key,
     label: s.label,
     short: s.short,
     // 只统计「当前轮」的确认记录：驳回重提后上一轮的通过不再算数
     done: currentConfirms.some(c => c.stageKey === s.key),
-    active: !rejected && bill.status !== 'APPROVED' && bill.currentStage === i,
-    error: rejected && lastRejectStage === i
+    active: !rejected && bill.status !== 'APPROVED' && activeIndex === s.index,
+    error: rejected && lastRejectStage === s.index
   }))
 }
 
@@ -572,7 +598,8 @@ function toListItem(user, bill) {
   return {
     chain: buildChain(bill),
     confirmedCount: confirmsOfCurrentRound(bill).length,
-    stageCount: stageCount(),
+    // 本单实际要走的环节数（免统结供应商少两个环节）
+    stageCount: stageListOf(bill).length,
     // 财务核算（财务结算模块用）
     finance: bill.finance || null,
     baseAmount: bill.totalAmount,
@@ -595,6 +622,8 @@ function toListItem(user, bill) {
     currentStage: bill.currentStage, stageLabel: stage ? stage.label : '',
     isMyTurn: isMyTurn(user, bill),
     resubmitCount: bill.resubmitCount,
+    // 独立结算身份（前端据此提示：本单不经统结方）
+    settlementExempt: isSettlementExempt(bill),
     rejectReason: bill.rejectReason || '',
     sourceFileName: bill.sourceFileName || '', importMode: bill.importMode || 'manual',
     formula: bill.formula || DEFAULT_FORMULA,
@@ -695,13 +724,22 @@ export async function getBillDetail(user, id) {
     items,
     confirms: supplierSubmitsOf(bill).concat(bill.confirms || []),
     rejections: bill.rejections || [],
-    stages: BILL_STAGES.map(s => {
+    // 只列本单实际要走的环节（免统结供应商不含统结方/财务二次确认）
+    stages: stageListOf(bill).map(s => {
       const rec = confirmsOfCurrentRound(bill).filter(c => c.stageKey === s.key).pop()
       const isActive = !!stage && stage.key === s.key
       // who：已确认 → 确认人姓名；当前环节 → 该处理的人；未到 → 空
       const who = rec ? rec.userName : (isActive ? currentHandlerOf(bill) : '')
       return { key: s.key, label: s.label, roleType: s.roleType, done: !!rec, active: isActive, who }
     }),
+    // 当前环节在本单链路中的下标（前端步骤条定位用；已通过时为链长）
+    chainIndex: (() => {
+      const list = stageListOf(bill)
+      if (bill.status === 'APPROVED') return list.length
+      const idx = currentStageIndex(bill)
+      const at = list.findIndex(x => x.index === idx)
+      return at >= 0 ? at : 0
+    })(),
     increaseCheck: increaseCheck(bill),
     // 统结方节点/财务二次确认用：同项目「供应商确认金额合计」（不含统结方自己的单）
     supplierConfirmedTotal: (() => {
@@ -841,6 +879,8 @@ export async function createBill(user, body) {
     status: deriveStatus({ currentStage: 0, rejected: false }),
     rejectReason: '',
     resubmitCount: 0,
+    // 独立结算身份快照：创建时按供应商账号所持角色(19)判定，此后不随账号改名而变
+    settlementExempt: resolveSettlementExempt(supplierName),
     confirms: [],
     rejections: [],
     // 供应商提交记录（确认链路之外的起点，明细「确认记录」要能看到谁在什么时候提交的）
@@ -975,6 +1015,8 @@ export function previewFormula(user, body = {}) {
 
 // 抄送统一结算方：飞书推送 + 站内待办（单据全部确认通过后，提示统结方提交总金额）
 function notifySettlementSubmitter(bill) {
+  // 免统结供应商（如康尼瑞行）与统结方无合同、单据不走统结环节，无需抄送统结方
+  if (isSettlementExempt(bill)) return
   const scope = computeSupplierConfirmedTotal({ period: bill.period })
   const content = [
     billSummary(bill),
@@ -1038,7 +1080,11 @@ function supplierBaseAmount(bill) {
   const scope = computeSupplierConfirmedTotal({ projectId: bill.projectId, period: bill.period })
   const partyNames = new Set(users.filter(u => !u.disabled && hasRole(u, ROLE.SETTLEMENT))
     .map(u => String(u.userName || '').trim()))
-  const suppliers = (scope.suppliers || []).filter(s => !partyNames.has(String(s.supplierName || '').trim()))
+  // 排除统结方自己的单，以及「独立结算」供应商（与统结方无合同，本就不走统结）
+  const suppliers = (scope.suppliers || []).filter(s => {
+    const n = String(s.supplierName || '').trim()
+    return !partyNames.has(n) && !resolveSettlementExempt(n)
+  })
   return {
     base: roundMoney(suppliers.reduce((sum, s) => sum + s.amount, 0)),
     supplierCount: suppliers.length,
@@ -1350,7 +1396,8 @@ export async function confirmBill(user, id, body = {}) {
     ...(settlementInfo ? { settlement: settlementInfo } : {}),
     ...(comparisonInfo ? { comparison: comparisonInfo } : {})
   })
-  bill.currentStage = stageIndex + 1
+  // 推进到下一个「对本单适用」的环节：免统结供应商会跳过统结方/财务二次确认
+  bill.currentStage = nextApplicableIndex(bill, stageIndex + 1)
   bill.rejected = false
   bill.rejectReason = ''
   bill.updatedAt = nowText()
@@ -1362,7 +1409,8 @@ export async function confirmBill(user, id, body = {}) {
   if (bill.status === 'APPROVED') {
     // 末节点（OA 结算专员）通过：回执供应商（仅本单所属）与甲方PM
     notifySupplier(bill, `【已全部确认】${bill.batchName}`,
-      `${roleNameOf(stage)}-${user.userName} 已确认通过，确认链（业务工程师→财务→统结方→财务二次确认→负责人→算法→OA结算）已全部通过。`)
+      `${roleNameOf(stage)}-${user.userName} 已确认通过，确认链（${
+        stageListOf(bill).map(s => s.short || s.label).join('→')}）已全部通过。`)
     notifyRoles([ROLE.CLIENT_PM], 'finance', `【结算单已完成】${bill.batchName}`,
       `${billSummary(bill)}\n${roleNameOf(stage)}-${user.userName} 已确认通过，确认链全部通过。`, 'bill', bill.id)
     notifySubmitter(bill, stage, user.userName, null)
