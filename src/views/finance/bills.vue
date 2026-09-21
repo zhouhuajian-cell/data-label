@@ -119,7 +119,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Download, Upload, Bell } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
-import { ROLE_TYPE, BILL_STAGES, BILL_STATUS_BY_STAGE, stagesOf, hasRole, hasAnyRole, getBillStatusText, getBillStatusType, formatMoney } from '@/utils/constants'
+import { ROLE_TYPE, BILL_STAGES, BILL_STATUS_BY_STAGE, stagesOf, hasRole, hasAnyRole, getBillStatusText, getBillStatusType, formatMoney, isSupplierOnly as isSupplierOnlyOf } from '@/utils/constants'
 import { listBillsApi, getBillStatsApi, billExportPath, urgeBillApi } from '@/api/finance'
 import { listProjectOptionsApi } from '@/api/projects'
 import { useDownload } from '@/composables/useDownload'
@@ -135,7 +135,8 @@ const { statColumns, descColumns, drawerSize } = useResponsive()
 // 列表列宽改用固定值（见模板注释），不再按屏宽缩放；tableScale 仍供上传弹窗等组件使用
 
 // 账号可持多角色：供应商侧只看自家单据，内部角色看全部
-const isSupplierOnly = computed(() => userStore.roles.every(r => r === ROLE_TYPE.VENDOR_TL))
+// 复用 constants 的统一判定（与后端同口径），不要在此重复实现
+const isSupplierOnly = computed(() => isSupplierOnlyOf(userStore.userInfo))
 const canCreate = computed(() => hasAnyRole(userStore.userInfo, [ROLE_TYPE.VENDOR_TL, ROLE_TYPE.CLIENT_PM]))
 // 该账号在确认链上可操作的节点（可能多个 → 环环相扣）
 const myStages = computed(() => stagesOf(userStore.userInfo))

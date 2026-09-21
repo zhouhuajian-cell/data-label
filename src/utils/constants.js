@@ -176,10 +176,19 @@ export function formatMoney(value) {
   return n.toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
 
-// 纯供应商账号（只持供应商角色）：工作台就是「项目管理」（建项目 + 上传验收数据）
+// 内部角色（与后端 server/lib/bill-flow.js 的 INTERNAL_ROLES 一致）：持任一即按内部人员看待
+const INTERNAL_ROLE_TYPES = [1, 13, 14, 15, 16]
+
+// 纯供应商账号：只做供应商的事（建项目 + 上传验收数据），不参与确认链。
+// ⚠ 判定必须与后端 isSupplierOnly 对齐——早前这里写的是「所有角色都等于供应商」，
+// 一旦给供应商叠加任何标记角色（如「独立结算」19）就会被误判为非纯供应商，
+// 从而被 BILL_ALL_ROLES 里的供应商角色放行、看见「数据验收进度」。
 export function isSupplierOnly(userOrRole) {
   const roles = roleTypesOf(userOrRole)
-  return roles.length > 0 && roles.every(r => r === ROLE_TYPE.VENDOR_TL)
+  if (!roles.length) return false
+  if (hasAnyRole(userOrRole, INTERNAL_ROLE_TYPES)) return false
+  if (hasRole(userOrRole, ROLE_TYPE.SETTLEMENT)) return false
+  return hasRole(userOrRole, ROLE_TYPE.VENDOR_TL)
 }
 
 // 统结方账号（持有统结方角色）。统结方（如柏川）通常同时带供应商角色，
@@ -191,6 +200,8 @@ export function isSettlementParty(userOrRole) {
 
 // 是否可访问「验收结算确认」页：确认链角色与甲方PM可访问；纯供应商只在项目页内看本项目的结算单
 export function canAccessBills(userOrRole) {
+  // 独立结算：结算路径不经统结方，也不需要确认流工作台（自己的单在「项目管理」页内看）
+  if (hasRole(userOrRole, ROLE_TYPE.INDEPENDENT_SETTLE)) return false
   if (isSupplierOnly(userOrRole)) return false
   return hasAnyRole(userOrRole, BILL_ALL_ROLES)
 }
