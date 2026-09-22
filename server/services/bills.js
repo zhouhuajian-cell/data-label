@@ -1636,8 +1636,9 @@ export function settlementSummary(user, query = {}) {
     baseAmount: 0, deduction: 0, taxAmount: 0
   }
   const supplierMap = {}
-  // 供应商 × 项目 分布：图表「按供应商分布」用（每家供应商在每个项目上各多少钱、已结/未结）
-  const supplierProjectMap = {}
+  // 供应商 × 成本中心 分布：图表「按供应商分布」用
+  // （每家供应商在各成本中心上各多少钱、已结/未结——金额已按比例分摊）
+  const supplierCostCenterMap = {}
   const costMap = {}
   const periodMap = {}
   const projectMap = {}
@@ -1676,35 +1677,40 @@ export function settlementSummary(user, query = {}) {
     const at = String(b.approvedAt || b.updatedAt || b.createdAt || '')
     if (at > sup.lastAt) { sup.lastAt = at; sup.lastPeriod = String(b.period || '') }
 
-    // 供应商 × 项目：同一供应商在不同项目上的金额与结算状态（沿用同一金额口径）
-    const spKey = sKey + '||' + String(b.projectId || 0)
-    const sp = supplierProjectMap[spKey] || (supplierProjectMap[spKey] = {
-      supplierName: sKey, projectId: b.projectId || null, projectName: b.projectName || '未归属项目',
-      billCount: 0, amount: 0, settledAmount: 0, pendingAmount: 0
-    })
-    sp.billCount++
-    sp.amount += payable
-    if (isSettled(b)) sp.settledAmount += payable
-    else if (isPending(b)) sp.pendingAmount += payable
 
     // 成本中心金额分布：金额 = 报表口径金额（统结方提交金额优先，见 payableOf）× 供应商填写的比例。
     // 比例仍是供应商原填的值（不重算比例），只把分摊基数换成统结口径；
     // 用与建单同款的末位吸收分摊，保证各成本中心金额之和恰等于该单的报表金额。
     const centers = (b.costCenters || []).map(c => ({ name: c.name, ratio: Number(c.ratio) || 0 }))
+    // 同一份分摊金额同时累加到「供应商 × 成本中心」，保证两个口径完全一致
+    const addToSupplierCostCenter = (cName, amount) => {
+      const scKey = sKey + '||' + cName
+      const sc = supplierCostCenterMap[scKey] || (supplierCostCenterMap[scKey] = {
+        supplierName: sKey, costCenter: cName, billCount: 0, amount: 0, settledAmount: 0, pendingAmount: 0
+      })
+      sc.billCount++
+      sc.amount += amount
+      if (isSettled(b)) sc.settledAmount += amount
+      else if (isPending(b)) sc.pendingAmount += amount
+    }
     if (centers.length) {
       for (const c of allocateCostCenters(centers, payable)) {
         const cKey = String(c.name || '未命名').trim()
+        const amt = Number(c.amount) || 0
         const row = costMap[cKey] || (costMap[cKey] = { name: cKey, amount: 0, billCount: 0, ratioSum: 0, suppliers: new Set() })
-        row.amount += Number(c.amount) || 0
+        row.amount += amt
         row.billCount++
         row.ratioSum += Number(c.ratio) || 0
         row.suppliers.add(sKey)
+        addToSupplierCostCenter(cKey, amt)
       }
     } else {
-      const row = costMap['未填成本中心'] || (costMap['未填成本中心'] = { name: '未填成本中心', amount: 0, billCount: 0, ratioSum: 0, suppliers: new Set() })
+      const cKey = '未填成本中心'
+      const row = costMap[cKey] || (costMap[cKey] = { name: cKey, amount: 0, billCount: 0, ratioSum: 0, suppliers: new Set() })
       row.amount += payable
       row.billCount++
       row.suppliers.add(sKey)
+      addToSupplierCostCenter(cKey, payable)
     }
 
     // 周期累积
@@ -1765,8 +1771,8 @@ export function settlementSummary(user, query = {}) {
       settleRate: totals.amount > 0 ? Number((totals.settledAmount / totals.amount * 100).toFixed(1)) : 0
     },
     suppliers,
-    // 供应商 × 项目 分布（金额口径与 suppliers 一致：统结方提交金额优先）
-    supplierProjects: Object.values(supplierProjectMap)
+    // 供应商 × 成本中心 分布（图表「按供应商分布」数据源；金额口径与 suppliers 一致）
+    supplierCostCenters: Object.values(supplierCostCenterMap)
       .map(r => ({
         ...r,
         amount: roundMoney(r.amount),

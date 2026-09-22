@@ -135,8 +135,8 @@ const totals = ref({
   costCenterCount: 0
 })
 const suppliers = ref([])
-// 供应商 × 项目 分布（图表「按供应商分布」的数据源）
-const supplierProjects = ref([])
+// 供应商 × 成本中心 分布（图表「按供应商分布」的数据源）
+const supplierCostCenters = ref([])
 const costCenters = ref([])
 const periods = ref([])
 
@@ -164,30 +164,30 @@ function renderPie () {
 }
 
 // 按供应商维度的柱状图：每家一根柱子，堆叠展示「已结 / 未结」（两者之和即累计金额）
-// 按供应商分布：横轴为供应商；每家供应商按项目分成若干根柱子（项目分布），
+// 按供应商分布：横轴为供应商；每家供应商按「成本中心」分成若干根柱子，
 // 每根柱内堆叠「已结（绿）/ 未结（黄）」。
 // 系列名只取状态（已结/未结），同名系列在 echarts 里合并为一个图例项，
-// 所以图例干净，不会出现一长串项目名。
+// 所以图例恒为两项，不会出现一长串成本中心名。
 function renderBar () {
   if (!barRef.value) return
   if (!barChart) barChart = echarts.init(barRef.value)
   const supplierOrder = [...suppliers.value]
     .sort((a, b) => (b.amount || 0) - (a.amount || 0))
     .map(s => s.supplierName)
-  const rows = supplierProjects.value
-  const projectNames = [...new Set(rows.map(r => r.projectName))]
-  const at = (supplierName, projectName) => rows.find(r => r.supplierName === supplierName && r.projectName === projectName)
-  // 每个项目两个系列：同 stack 名 → 组内堆叠；不同 stack → 并排成组（即项目分布）
+  const rows = supplierCostCenters.value
+  const ccNames = [...new Set(rows.map(r => r.costCenter))]
+  const at = (supplierName, cc) => rows.find(r => r.supplierName === supplierName && r.costCenter === cc)
+  // 每个成本中心两个系列：同 stack 名 → 组内堆叠；不同 stack → 并排成组（即成本中心分布）
   const series = []
-  for (const pName of projectNames) {
+  for (const cc of ccNames) {
     series.push({
-      name: '已结', type: 'bar', stack: pName, barMaxWidth: 32,
-      data: supplierOrder.map(s => Number(at(s, pName)?.settledAmount) || 0),
+      name: '已结', type: 'bar', stack: cc, barMaxWidth: 32,
+      data: supplierOrder.map(s => Number(at(s, cc)?.settledAmount) || 0),
       itemStyle: { color: '#67c23a' }
     })
     series.push({
-      name: '未结', type: 'bar', stack: pName, barMaxWidth: 32,
-      data: supplierOrder.map(s => Number(at(s, pName)?.pendingAmount) || 0),
+      name: '未结', type: 'bar', stack: cc, barMaxWidth: 32,
+      data: supplierOrder.map(s => Number(at(s, cc)?.pendingAmount) || 0),
       itemStyle: { color: '#e6a23c' }
     })
   }
@@ -201,7 +201,7 @@ function renderBar () {
         if (!mine.length) return sName
         const lines = mine.map(r => {
           const unsettled = Math.max(0, (Number(r.amount) || 0) - (Number(r.settledAmount) || 0))
-          return `${r.projectName}：已结 ¥${formatMoney(r.settledAmount)} · 未结 ¥${formatMoney(unsettled)}`
+          return `${r.costCenter}：已结 ¥${formatMoney(r.settledAmount)} · 未结 ¥${formatMoney(unsettled)}`
         })
         const total = mine.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
         return `${sName}<br/>${lines.join('<br/>')}<br/>合计：¥${formatMoney(total)}`
@@ -224,7 +224,7 @@ async function load () {
   const d = data || {}
   totals.value = { ...totals.value, ...(d.totals || {}) }
   suppliers.value = d.suppliers || []
-  supplierProjects.value = d.supplierProjects || []
+  supplierCostCenters.value = d.supplierCostCenters || []
   costCenters.value = d.costCenters || []
   periods.value = d.periods || []
   if (!periodOptions.value.length) {
