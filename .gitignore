@@ -27,3 +27,8 @@ server/data/
 uploads/
 .npm-cache/
 .ocr-tmp.png
+
+# 运维临时脚本与导出的数据（用完即删，勿提交）
+scripts/_*.mjs
+scripts/_*.sql
+scripts/_*.b64
