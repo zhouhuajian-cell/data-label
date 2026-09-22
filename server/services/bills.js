@@ -1674,10 +1674,12 @@ export function settlementSummary(user, query = {}) {
     const at = String(b.approvedAt || b.updatedAt || b.createdAt || '')
     if (at > sup.lastAt) { sup.lastAt = at; sup.lastPeriod = String(b.period || '') }
 
-    // 成本中心金额分布（单据上已按占比分摊好金额）
-    const centers = b.costCenters || []
+    // 成本中心金额分布：金额 = 报表口径金额（统结方提交金额优先，见 payableOf）× 供应商填写的比例。
+    // 比例仍是供应商原填的值（不重算比例），只把分摊基数换成统结口径；
+    // 用与建单同款的末位吸收分摊，保证各成本中心金额之和恰等于该单的报表金额。
+    const centers = (b.costCenters || []).map(c => ({ name: c.name, ratio: Number(c.ratio) || 0 }))
     if (centers.length) {
-      for (const c of centers) {
+      for (const c of allocateCostCenters(centers, payable)) {
         const cKey = String(c.name || '未命名').trim()
         const row = costMap[cKey] || (costMap[cKey] = { name: cKey, amount: 0, billCount: 0, ratioSum: 0, suppliers: new Set() })
         row.amount += Number(c.amount) || 0

@@ -482,3 +482,41 @@ test('仪表盘金额口径：有统结提交用统结金额，未统结用单�
   assert.equal(row.amount, 1100, '累计金额应取统结方提交金额')
   assert.equal(row.baseAmount, 1000, '基础金额仍为单据原始金额（明细不变）')
 })
+
+// ===== 仪表盘成本中心：按统结金额 × 供应商原比例重算 =====
+test('成本中心金额：以统结方金额为基数按原比例重算，合计等于统结金额', async () => {
+  const PERIOD = '2034-01'
+  const bill = await createBill(supplierA, {
+    projectId: PROJECT_ID,
+    batchName: '成本中心口径-' + (++seq),
+    period: PERIOD,
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: 'f.csv', size: 1 }],
+    costCenters: [{ name: 'M57', ratio: 60 }, { name: 'G91', ratio: 40 }],
+    items: [{ taskName: 'K-1', quantity: 10, unitPrice: 100 }]      // 单据金额 1000
+  })
+  await assignEngineer(finance, bill.id, { engineerId: ENGINEER_ID })
+  await confirmBill(bizEngineer, bill.id, {})
+  await calculateBill(finance, bill.id, { deduction: 0, taxRate: 0 })
+  await confirmBill(finance, bill.id, {})
+
+  // 统结前：按单据金额 1000 分摊 → 600 / 400
+  const before = settlementSummary(finance, { period: PERIOD }).costCenters
+  assert.equal(before.find(c => c.name === 'M57').amount, 600)
+  assert.equal(before.find(c => c.name === 'G91').amount, 400)
+
+  // 柏川提交 1030（较 1000 增幅 3%，在 3.5% 红线内）
+  await confirmBill(party, bill.id, {
+    items: [{ taskName: '统结明细', quantity: 1, unitPrice: 1030 }],
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: 's.csv', size: 1 }]
+  })
+
+  // 统结后：同一比例，基数换成 1030 → 618 / 412，合计恰为 1030
+  const after = settlementSummary(finance, { period: PERIOD }).costCenters
+  const m57 = after.find(c => c.name === 'M57')
+  const g91 = after.find(c => c.name === 'G91')
+  assert.equal(m57.amount, 618, '1030 × 60%')
+  assert.equal(g91.amount, 412, '1030 × 40%')
+  assert.equal(Number((m57.amount + g91.amount).toFixed(2)), 1030, '成本中心合计应等于统结金额')
+  assert.equal(m57.avgRatio, 60, '比例仍是供应商原填值，未被改动')
+  assert.equal(g91.avgRatio, 40)
+})
