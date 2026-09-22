@@ -1592,6 +1592,15 @@ export async function exportBillsCsv(user, query) {
 // ===== 结算汇总看板（数据仪表盘）：累积结算 + 成本中心金额分布 + 周期累积 =====
 // 口径说明：金额用「应付金额」优先（财务核算过），未核算时退回基础金额；
 // 「已结算」= 流程走完(APPROVED)，其余未驳回的算「在途」。供应商维度按姓名归集。
+// 统结方在某张单据上提交的金额（金额由统结明细自动汇总而来）。
+// 取最后一次提交：统结方改正后重提时以最新一次为准。未走到该环节返回 null。
+export function settlementSubmittedOf(bill) {
+  const recs = (bill.confirms || []).filter(c => c.stageKey === 'SETTLEMENT' && c.settlement)
+  if (!recs.length) return null
+  const v = Number(recs[recs.length - 1].settlement?.submittedTotal)
+  return Number.isFinite(v) ? v : null
+}
+
 export function settlementSummary(user, query = {}) {
   requireBillRoles(user)
   const period = String(query.period || '').trim()
@@ -1609,7 +1618,12 @@ export function settlementSummary(user, query = {}) {
   if (dateFrom) list = list.filter(b => String(b.createdAt || '') >= dateFrom)
   if (dateTo) list = list.filter(b => String(b.createdAt || '') <= dateTo + ' 23:59:59')
 
+  // 报表金额口径：对外结算以统结方提交的金额为准，故单据金额优先取「统结方在该单上提交的金额」；
+  // 尚未走到统结环节的单据（独立结算供应商、流程中的单）退回单据自己的金额兜底。
+  // 只影响本报表的金额汇总，不改动单据的明细、核算与确认记录。
   const payableOf = (b) => {
+    const submitted = settlementSubmittedOf(b)
+    if (submitted !== null) return submitted
     const p = b.finance?.payableAmount
     return Number(p === undefined || p === null ? b.totalAmount : p) || 0
   }

@@ -6,7 +6,8 @@ config.db.enabled = false // 不触碰真实 MySQL
 import { feishuConfig, projects, notifications, users } from '../server/repositories/data.js'
 import { hasRole } from '../server/lib/roles.js'
 import {
-  createBill, confirmBill, calculateBill, getBillDetail, listBills, increaseCheck, MAX_INCREASE_RATE, assignEngineer
+  createBill, confirmBill, calculateBill, getBillDetail, listBills, increaseCheck, MAX_INCREASE_RATE, assignEngineer,
+  settlementSummary, settlementSubmittedOf
 } from '../server/services/bills.js'
 
 feishuConfig.enabled = false
@@ -437,4 +438,47 @@ test('独立结算身份：财务后直达负责人，且不计入统结对比�
   assert.deepEqual(promotedRow.chain.map(c => c.key), ['BIZ', 'FINANCE', 'LEADER', 'PERCEPTION', 'OA'],
     '勾选独立结算后新单应跳过统结环节')
   promoted.roleTypes = backup   // 还原，避免影响其他用例
+})
+
+// ===== 数据仪表盘金额口径：优先统结方提交金额，未统结的退回单据自己的金额 =====
+test('仪表盘金额口径：有统结提交用统结金额，未统结用单据金额', async () => {
+  const PERIOD = '2033-12'
+  const mk = async (price) => {
+    const b = await createBill(supplierA, {
+      projectId: PROJECT_ID,
+      batchName: '口径批次-' + (++seq),
+      period: PERIOD,
+      attachments: [{ storedName: 'bills/fixture.csv', originalName: 'f.csv', size: 1 }],
+      costCenters: [{ name: 'M57', ratio: 100 }],
+      items: [{ taskName: 'K-1', quantity: 10, unitPrice: price }]
+    })
+    await assignEngineer(finance, b.id, { engineerId: ENGINEER_ID })
+    return b
+  }
+
+  // 普通供应商走完整链路到统结方节点 → 柏川提交统结金额（比供应商金额高 100）
+  const bill = await mk(100)                             // 单据金额 1000
+  await confirmBill(bizEngineer, bill.id, {})
+  await calculateBill(finance, bill.id, { deduction: 0, taxRate: 0 })
+  await confirmBill(finance, bill.id, {})
+  const afterFinance = await getBillDetail(finance, bill.id)
+  assert.equal(afterFinance.status, 'PENDING_SETTLEMENT')
+  // 统结尚未提交：解析结果为空 → 报表退回用单据自己的金额
+  assert.equal(settlementSubmittedOf(afterFinance), null, '统结方未提交时应为空')
+  const beforeRow = settlementSummary(finance, { period: PERIOD }).suppliers.find(x => x.supplierName === supplierA.userName)
+  assert.equal(beforeRow.amount, 1000, '统结前应用单据自己的金额（应付金额）')
+
+  await confirmBill(party, bill.id, {
+    items: [{ taskName: '统结明细', quantity: 1, unitPrice: 1100 }],
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: 's.csv', size: 1 }]
+  })
+  const submitted = await getBillDetail(finance, bill.id)
+  assert.equal(settlementSubmittedOf(submitted), 1100, '统结方提交金额应被解析出来')
+
+  // 报表口径：该单金额取统结金额 1100，而不是单据金额 1000
+  const summary = settlementSummary(finance, { period: PERIOD })
+  const row = summary.suppliers.find(x => x.supplierName === supplierA.userName)
+  assert.ok(row, '应能在供应商维度找到该供应商')
+  assert.equal(row.amount, 1100, '累计金额应取统结方提交金额')
+  assert.equal(row.baseAmount, 1000, '基础金额仍为单据原始金额（明细不变）')
 })

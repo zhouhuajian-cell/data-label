@@ -37,7 +37,7 @@
           <el-option v-for="p in periodOptions" :key="p" :label="p" :value="p" />
         </el-select>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <span class="tip">口径：金额取「应付金额」，未核算时用基础金额；已结算 = 流程全部通过</span>
+        <span class="tip">口径：金额优先取统结方提交金额；未走统结环节的取「应付金额」（未核算用基础金额）；已结算 = 流程全部通过</span>
       </div>
     </el-card>
 
