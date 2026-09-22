@@ -163,17 +163,14 @@ export function stagesOf(userOrRole) {
 // 金额显示：默认 2 位小数。
 // 平台金额口径支持到 10 位，但浮点累加会产生 1e-10 级别的尾差（如 …9500000002），
 // 因此：与两位小数相差不到 1e-8 时按两位显示；确有更高精度时才展开（最多 10 位，去掉末尾 0）。
+// 金额展示：统一保留 2 位（人民币元到分）。
+// 不直接用 toFixed 截断的原因：浮点累加会产生 1.1511199500000002 这类噪声，
+// 而统结金额等字段库里存的是 DECIMAL(28,10) 的高精度原值（如 253247.275944）——
+// 两者都应展示为 2 位，四舍五入即可（误差不超过半分，属于合理舍入）。
 export function formatMoney(value) {
   const n = Number(value || 0)
   if (!Number.isFinite(n)) return '0.00'
-  const two = Number(n.toFixed(2))
-  if (Math.abs(n - two) < 1e-8) {
-    return two.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  }
-  const trimmed = n.toFixed(10).replace(/0+$/, '').replace(/\.$/, '')
-  const decLen = String(trimmed).split('.')[1]?.length || 0
-  const digits = Math.min(10, Math.max(2, decLen))
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 // 内部角色（与后端 server/lib/bill-flow.js 的 INTERNAL_ROLES 一致）：持任一即按内部人员看待
