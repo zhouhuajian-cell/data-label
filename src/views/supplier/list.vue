@@ -48,7 +48,7 @@
         <div ref="pieRef" class="chart-box"></div>
       </el-card>
       <el-card shadow="never" class="chart-card">
-        <template #header><span class="card-title">按供应商累积</span></template>
+        <template #header><span class="card-title">按供应商分布</span></template>
         <div ref="barRef" class="chart-box"></div>
       </el-card>
     </div>
@@ -135,6 +135,8 @@ const totals = ref({
   costCenterCount: 0
 })
 const suppliers = ref([])
+// 供应商 × 项目 分布（图表「按供应商分布」的数据源）
+const supplierProjects = ref([])
 const costCenters = ref([])
 const periods = ref([])
 
@@ -162,37 +164,63 @@ function renderPie () {
 }
 
 // 按供应商维度的柱状图：每家一根柱子，堆叠展示「已结 / 未结」（两者之和即累计金额）
+// 按供应商分布：横轴为供应商，每个项目一组柱子，组内再按「已结 / 未结」堆叠。
+// 例如「历帆」下会有 M57、G91 两组柱，各自展示该项目的已结与未结金额。
+const PROJECT_COLORS = ['#409eff', '#67c23a', '#e6a23c', '#9254de', '#13c2c2', '#f56c6c', '#597ef7', '#ffa940']
 function renderBar () {
   if (!barRef.value) return
   if (!barChart) barChart = echarts.init(barRef.value)
-  // 金额从大到小排列，条形更直观（suppliers 后端已按金额排序，这里不依赖顺序）
-  const rows = [...suppliers.value].sort((a, b) => (b.amount || 0) - (a.amount || 0))
-  const settled = rows.map(r => Number(r.settledAmount) || 0)
-  // 未结 = 累计 − 已结（在途与驳回都算未结，避免出现负数）
-  const unsettled = rows.map((r, i) => Math.max(0, (Number(r.amount) || 0) - settled[i]))
+  // 供应商顺序：按累计金额从大到小（同供应商的项目柱相邻，便于对比）
+  const supplierOrder = [...suppliers.value]
+    .sort((a, b) => (b.amount || 0) - (a.amount || 0))
+    .map(s => s.supplierName)
+  const rows = supplierProjects.value
+  // 项目顺序：按金额从大到小，颜色分配才稳定
+  const projectNames = [...new Set(rows.map(r => r.projectName))]
+    .map(name => ({ name, amount: rows.filter(r => r.projectName === name).reduce((s, r) => s + (Number(r.amount) || 0), 0) }))
+    .sort((a, b) => b.amount - a.amount)
+    .map(x => x.name)
+  const at = (supplierName, projectName) => rows.find(r => r.supplierName === supplierName && r.projectName === projectName)
+  // 每个项目两个系列（同 stack 名 → 组内堆叠；不同 stack → 并排成组）
+  const series = []
+  projectNames.forEach((pName, idx) => {
+    const base = PROJECT_COLORS[idx % PROJECT_COLORS.length]
+    series.push({
+      name: `${pName}·已结`, type: 'bar', stack: pName, barMaxWidth: 34,
+      data: supplierOrder.map(s => Number(at(s, pName)?.settledAmount) || 0),
+      itemStyle: { color: base }
+    })
+    series.push({
+      name: `${pName}·未结`, type: 'bar', stack: pName, barMaxWidth: 34,
+      data: supplierOrder.map(s => Number(at(s, pName)?.pendingAmount) || 0),
+      itemStyle: { color: base, opacity: 0.45 }
+    })
+  })
   barChart.setOption({
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       formatter: (ps) => {
-        const i = ps[0].dataIndex
-        const total = (Number(rows[i].amount) || 0)
-        const lines = ps.map(p => `${p.marker}${p.seriesName}：¥${formatMoney(p.value)}`)
-        return `${rows[i].supplierName}<br/>${lines.join('<br/>')}<br/>合计：¥${formatMoney(total)}`
+        const sName = ps[0]?.axisValue || ''
+        const mine = rows.filter(r => r.supplierName === sName)
+        if (!mine.length) return sName
+        const lines = mine.map(r => {
+          const unsettled = Math.max(0, (Number(r.amount) || 0) - (Number(r.settledAmount) || 0))
+          return `${r.projectName}：¥${formatMoney(r.amount)}（已结 ¥${formatMoney(r.settledAmount)} · 未结 ¥${formatMoney(unsettled)}）`
+        })
+        const total = mine.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+        return `${sName}<br/>${lines.join('<br/>')}<br/>合计：¥${formatMoney(total)}`
       }
     },
-    legend: { bottom: 0 },
-    grid: { left: 60, right: 20, top: 20, bottom: 50 },
+    legend: { bottom: 0, type: 'scroll' },
+    grid: { left: 60, right: 20, top: 20, bottom: 60 },
     xAxis: {
       type: 'category',
-      data: rows.map(r => r.supplierName),
-      axisLabel: { fontSize: 11, interval: 0, rotate: rows.length > 5 ? 30 : 0 }
+      data: supplierOrder,
+      axisLabel: { fontSize: 11, interval: 0, rotate: supplierOrder.length > 4 ? 30 : 0 }
     },
     yAxis: { type: 'value', axisLabel: { formatter: (v) => (v >= 10000 ? (v / 10000) + '万' : v) } },
-    series: [
-      { name: '已结', type: 'bar', stack: 'amount', data: settled, itemStyle: { color: '#67c23a' }, barMaxWidth: 48 },
-      { name: '未结', type: 'bar', stack: 'amount', data: unsettled, itemStyle: { color: '#e6a23c' }, barMaxWidth: 48 }
-    ]
+    series
   }, true)
 }
 
@@ -201,6 +229,7 @@ async function load () {
   const d = data || {}
   totals.value = { ...totals.value, ...(d.totals || {}) }
   suppliers.value = d.suppliers || []
+  supplierProjects.value = d.supplierProjects || []
   costCenters.value = d.costCenters || []
   periods.value = d.periods || []
   if (!periodOptions.value.length) {

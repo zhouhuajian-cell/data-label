@@ -1636,6 +1636,8 @@ export function settlementSummary(user, query = {}) {
     baseAmount: 0, deduction: 0, taxAmount: 0
   }
   const supplierMap = {}
+  // 供应商 × 项目 分布：图表「按供应商分布」用（每家供应商在每个项目上各多少钱、已结/未结）
+  const supplierProjectMap = {}
   const costMap = {}
   const periodMap = {}
   const projectMap = {}
@@ -1673,6 +1675,17 @@ export function settlementSummary(user, query = {}) {
     if (b.projectName) sup.projects.add(String(b.projectName))
     const at = String(b.approvedAt || b.updatedAt || b.createdAt || '')
     if (at > sup.lastAt) { sup.lastAt = at; sup.lastPeriod = String(b.period || '') }
+
+    // 供应商 × 项目：同一供应商在不同项目上的金额与结算状态（沿用同一金额口径）
+    const spKey = sKey + '||' + String(b.projectId || 0)
+    const sp = supplierProjectMap[spKey] || (supplierProjectMap[spKey] = {
+      supplierName: sKey, projectId: b.projectId || null, projectName: b.projectName || '未归属项目',
+      billCount: 0, amount: 0, settledAmount: 0, pendingAmount: 0
+    })
+    sp.billCount++
+    sp.amount += payable
+    if (isSettled(b)) sp.settledAmount += payable
+    else if (isPending(b)) sp.pendingAmount += payable
 
     // 成本中心金额分布：金额 = 报表口径金额（统结方提交金额优先，见 payableOf）× 供应商填写的比例。
     // 比例仍是供应商原填的值（不重算比例），只把分摊基数换成统结口径；
@@ -1752,6 +1765,15 @@ export function settlementSummary(user, query = {}) {
       settleRate: totals.amount > 0 ? Number((totals.settledAmount / totals.amount * 100).toFixed(1)) : 0
     },
     suppliers,
+    // 供应商 × 项目 分布（金额口径与 suppliers 一致：统结方提交金额优先）
+    supplierProjects: Object.values(supplierProjectMap)
+      .map(r => ({
+        ...r,
+        amount: roundMoney(r.amount),
+        settledAmount: roundMoney(r.settledAmount),
+        pendingAmount: roundMoney(r.pendingAmount)
+      }))
+      .sort((a, b) => b.amount - a.amount),
     costCenters,
     periods: Object.values(periodMap).sort((a, b) => String(a.period).localeCompare(String(b.period))),
     projects: Object.values(projectMap).map(p => ({ ...p, amount: roundMoney(p.amount), settledAmount: roundMoney(p.settledAmount) })).sort((a, b) => b.amount - a.amount)

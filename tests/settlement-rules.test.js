@@ -520,3 +520,44 @@ test('成本中心金额：以统结方金额为基数按原比例重算，合�
   assert.equal(m57.avgRatio, 60, '比例仍是供应商原填值，未被改动')
   assert.equal(g91.avgRatio, 40)
 })
+
+// ===== 供应商 × 项目 分布：同一供应商在多个项目上分别统计 =====
+test('供应商分布：按供应商×项目分组，金额口径与总额一致', async () => {
+  const PERIOD = '2034-02'
+  const otherProject = { id: 903, name: '分布测试项目B', clientName: '', status: 'active' }
+  projects.push(otherProject)
+
+  const mk = async (projectId, price) => {
+    const b = await createBill(supplierA, {
+      projectId,
+      batchName: '分布批次-' + (++seq),
+      period: PERIOD,
+      attachments: [{ storedName: 'bills/fixture.csv', originalName: 'f.csv', size: 1 }],
+      costCenters: [{ name: 'M57', ratio: 100 }],
+      items: [{ taskName: 'K-1', quantity: 10, unitPrice: price }]
+    })
+    await assignEngineer(finance, b.id, { engineerId: ENGINEER_ID })
+    return b
+  }
+
+  const a1 = await mk(PROJECT_ID, 100)        // 项目A 1000
+  const b1 = await mk(903, 300)               // 项目B 3000
+
+  const dist = settlementSummary(finance, { period: PERIOD }).supplierProjects
+  const mine = dist.filter(r => r.supplierName === supplierA.userName)
+  assert.equal(mine.length, 2, '同一供应商在两个项目上应有两行')
+  assert.deepEqual(mine.map(r => r.projectName).sort(), ['分布测试项目B', '规则测试项目'].sort())
+
+  const rowA = mine.find(r => r.projectId === PROJECT_ID)
+  const rowB = mine.find(r => r.projectId === 903)
+  assert.equal(rowA.amount, 1000)
+  assert.equal(rowB.amount, 3000)
+  assert.equal(rowA.pendingAmount, 1000, '未通过的单计入未结')
+  assert.equal(rowA.settledAmount, 0)
+
+  // 分布合计应与该供应商在 suppliers 里的累计金额一致（同一口径）
+  const supRow = settlementSummary(finance, { period: PERIOD }).suppliers.find(x => x.supplierName === supplierA.userName)
+  assert.equal(Number((rowA.amount + rowB.amount).toFixed(2)), supRow.amount, '分项目金额之和应等于供应商累计')
+  assert.equal(a1.status, 'PENDING_BIZ')
+  assert.equal(b1.status, 'PENDING_BIZ')
+})
