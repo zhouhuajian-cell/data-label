@@ -164,38 +164,33 @@ function renderPie () {
 }
 
 // 按供应商维度的柱状图：每家一根柱子，堆叠展示「已结 / 未结」（两者之和即累计金额）
-// 按供应商分布：横轴为供应商，每个项目一组柱子，组内再按「已结 / 未结」堆叠。
-// 例如「历帆」下会有 M57、G91 两组柱，各自展示该项目的已结与未结金额。
-const PROJECT_COLORS = ['#409eff', '#67c23a', '#e6a23c', '#9254de', '#13c2c2', '#f56c6c', '#597ef7', '#ffa940']
+// 按供应商分布：横轴为供应商；每家供应商按项目分成若干根柱子（项目分布），
+// 每根柱内堆叠「已结（绿）/ 未结（黄）」。
+// 系列名只取状态（已结/未结），同名系列在 echarts 里合并为一个图例项，
+// 所以图例干净，不会出现一长串项目名。
 function renderBar () {
   if (!barRef.value) return
   if (!barChart) barChart = echarts.init(barRef.value)
-  // 供应商顺序：按累计金额从大到小（同供应商的项目柱相邻，便于对比）
   const supplierOrder = [...suppliers.value]
     .sort((a, b) => (b.amount || 0) - (a.amount || 0))
     .map(s => s.supplierName)
   const rows = supplierProjects.value
-  // 项目顺序：按金额从大到小，颜色分配才稳定
   const projectNames = [...new Set(rows.map(r => r.projectName))]
-    .map(name => ({ name, amount: rows.filter(r => r.projectName === name).reduce((s, r) => s + (Number(r.amount) || 0), 0) }))
-    .sort((a, b) => b.amount - a.amount)
-    .map(x => x.name)
   const at = (supplierName, projectName) => rows.find(r => r.supplierName === supplierName && r.projectName === projectName)
-  // 每个项目两个系列（同 stack 名 → 组内堆叠；不同 stack → 并排成组）
+  // 每个项目两个系列：同 stack 名 → 组内堆叠；不同 stack → 并排成组（即项目分布）
   const series = []
-  projectNames.forEach((pName, idx) => {
-    const base = PROJECT_COLORS[idx % PROJECT_COLORS.length]
+  for (const pName of projectNames) {
     series.push({
-      name: `${pName}·已结`, type: 'bar', stack: pName, barMaxWidth: 34,
+      name: '已结', type: 'bar', stack: pName, barMaxWidth: 32,
       data: supplierOrder.map(s => Number(at(s, pName)?.settledAmount) || 0),
-      itemStyle: { color: base }
+      itemStyle: { color: '#67c23a' }
     })
     series.push({
-      name: `${pName}·未结`, type: 'bar', stack: pName, barMaxWidth: 34,
+      name: '未结', type: 'bar', stack: pName, barMaxWidth: 32,
       data: supplierOrder.map(s => Number(at(s, pName)?.pendingAmount) || 0),
-      itemStyle: { color: base, opacity: 0.45 }
+      itemStyle: { color: '#e6a23c' }
     })
-  })
+  }
   barChart.setOption({
     tooltip: {
       trigger: 'axis',
@@ -206,18 +201,18 @@ function renderBar () {
         if (!mine.length) return sName
         const lines = mine.map(r => {
           const unsettled = Math.max(0, (Number(r.amount) || 0) - (Number(r.settledAmount) || 0))
-          return `${r.projectName}：¥${formatMoney(r.amount)}（已结 ¥${formatMoney(r.settledAmount)} · 未结 ¥${formatMoney(unsettled)}）`
+          return `${r.projectName}：已结 ¥${formatMoney(r.settledAmount)} · 未结 ¥${formatMoney(unsettled)}`
         })
-        const total = mine.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+        const total = mine.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
         return `${sName}<br/>${lines.join('<br/>')}<br/>合计：¥${formatMoney(total)}`
       }
     },
-    legend: { bottom: 0, type: 'scroll' },
-    grid: { left: 60, right: 20, top: 20, bottom: 60 },
+    legend: { bottom: 0 },
+    grid: { left: 60, right: 20, top: 20, bottom: 50 },
     xAxis: {
       type: 'category',
       data: supplierOrder,
-      axisLabel: { fontSize: 11, interval: 0, rotate: supplierOrder.length > 4 ? 30 : 0 }
+      axisLabel: { fontSize: 11, interval: 0, rotate: supplierOrder.length > 5 ? 30 : 0 }
     },
     yAxis: { type: 'value', axisLabel: { formatter: (v) => (v >= 10000 ? (v / 10000) + '万' : v) } },
     series
