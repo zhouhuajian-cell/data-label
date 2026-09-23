@@ -33,7 +33,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/data_label/uploads
+ReadWritePaths=/opt/data_label/uploads /opt/data_label/archive
 
 # ===== 与同机数据挖掘（ad_mining，吃 4GB 内存做模型推理）的资源隔离 =====
 # 目标：本平台再忙也不挤占对方；异常时优先牺牲自己

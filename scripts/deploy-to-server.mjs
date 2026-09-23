@@ -308,6 +308,10 @@ echo "导入账号名册…"
 # 8) 目录属主与 systemd 单元
 chown -R "$RUN_USER:$RUN_USER" "$DIR"
 chmod 600 "$DIR/.env"
+# 审计归档目录：systemd 的 ReadWritePaths 要求路径必须已存在，否则服务起不来（226/NAMESPACE）
+mkdir -p "$DIR/archive"
+chown "$RUN_USER:$RUN_USER" "$DIR/archive"
+chmod 755 "$DIR/archive"
 
 # 每日 MySQL 备份（保留 14 天）
 if [ -f "$DIR/deploy/backup-db.sh" ]; then

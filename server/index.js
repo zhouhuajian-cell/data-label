@@ -185,6 +185,9 @@ async function bootstrap() {
   if (process.env.SEED_GOVERNANCE_DEMO === '1') {
     seedGovernanceDemo()
   }
+  // 审计日志：主列表只留最近 3 个月，更早的按月归档为 gzip 文件（启动时跑一次 + 每天一次）
+  const { startAuditArchiveScheduler } = await import('./services/audit-archive.js')
+  startAuditArchiveScheduler()
   await saveStore()
   server.listen(config.port, config.host, () => {
     console.log('data-label-api listening on http://' + config.host + ':' + config.port)

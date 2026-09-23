@@ -4,6 +4,7 @@
       <template #header>
         <div class="head">
           <span>系统操作日志</span>
+          <span class="tip">仅保留最近 3 个月；更早的记录已按月归档到服务器 archive 目录（gzip，可随时查回）</span>
           <div style="display:flex;gap:8px">
             <el-select v-model="typeFilter" placeholder="操作类型" clearable size="small" style="width:160px" @change="load(1)">
               <el-option label="全部" value="" />
@@ -171,5 +172,5 @@ onMounted(() => load(1))
 </script>
 
 <style scoped>
-.log-page{}.head{display:flex;justify-content:space-between;align-items:center}
+.log-page{}.head{display:flex;justify-content:space-between;align-items:center}.tip{font-size:12px;color:var(--text-3,#909399)}
 </style>
