@@ -11,7 +11,8 @@ export function listAuditLogs(user, searchParams) {
   const start = (page - 1) * pageSize
   const items = list.slice(start, start + pageSize).map(l => {
     const u = users.find(x => x.id === l.actorId)
-    return { ...l, actorName: u?.userName || '未知' }
+    // 优先用记录里冗余存的姓名：账号改名或停用后，历史日志仍能显示当时是谁操作的
+    return { ...l, actorName: l.actorName || u?.userName || '未知' }
   })
   return { items, total }
 }

@@ -3,6 +3,7 @@ import { ApiError } from '../lib/http.js'
 import { normalizeRoleTypes, roleTypesOf } from '../lib/roles.js'
 import { resetPassword, PASSWORD_MIN_LENGTH } from './auth.js'
 import { hashPassword } from '../lib/password.js'
+import { writeAudit, changedFields } from '../lib/audit.js'
 
 // 管理员新建/重置账号的默认初始密码（首次登录强制修改）
 export const DEFAULT_PASSWORD = '123456'
@@ -51,6 +52,7 @@ export function createUser(user, body) {
     mustChangePassword: true
   }
   users.push(newUser)
+  writeAudit('user.create', user, newUser, { username, userName, roleTypes })
   return toSafeUser(newUser)
 }
 
@@ -58,6 +60,8 @@ export function updateUser(user, id, body) {
   requirePM(user)
   const u = users.find(item => item.id === id)
   if (!u) throw new ApiError(404, 'NOT_FOUND', '用户不存在')
+  // 变更前快照：用于审计里对比出「到底改了什么」
+  const before = { username: u.username, userName: u.userName, disabled: !!u.disabled, roleTypes: roleTypesOf(u) }
   // 允许修改登录账号（管理员权限）：需保持唯一
   if (body.username !== undefined) {
     const username = String(body.username).trim()
@@ -82,6 +86,16 @@ export function updateUser(user, id, body) {
   if (body.password !== undefined && String(body.password).trim()) {
     resetPassword(user, id, body.password)
   }
+  const after = { username: u.username, userName: u.userName, disabled: !!u.disabled, roleTypes: roleTypesOf(u) }
+  // 审计：记录改了哪些字段与前后值（角色、姓名、账号、启用状态等）
+  const changed = changedFields(before, after)
+  if (changed.length) {
+    writeAudit('user.update', user, u, {
+      changed,
+      before: Object.fromEntries(changed.map(k => [k, before[k]])),
+      after: Object.fromEntries(changed.map(k => [k, after[k]]))
+    })
+  }
   return toSafeUser(u)
 }
 
@@ -91,6 +105,7 @@ export function deleteUser(user, id) {
   if (!u) throw new ApiError(404, 'NOT_FOUND', '用户不存在')
   if (u.id === user.id) throw new ApiError(422, 'VALIDATION_ERROR', '不能禁用当前登录账号')
   u.disabled = true
+  writeAudit('user.disable', user, u, { note: '停用账号（保留数据，可再启用）' })
   return { deleted: true }
 }
 

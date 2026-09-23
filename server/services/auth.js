@@ -1,9 +1,9 @@
 import { ApiError } from '../lib/http.js'
 import { users } from '../repositories/data.js'
 import { nowText } from '../lib/time.js'
-import { auditLogs } from '../repositories/data.js'
 import { normalizeRoleTypes } from '../lib/roles.js'
 import { hashPassword, verifyPassword } from '../lib/password.js'
+import { writeAudit } from '../lib/audit.js'
 
 // 飞书登录 MVP：授权码 → 账号（真实飞书 OAuth 二期接入，见 README）
 const feishuMap = {
@@ -21,8 +21,11 @@ export function loginByPassword(body) {
   // 先按账号取出再校验哈希：避免"用户不存在"与"密码错误"产生不同的响应耗时
   const user = users.find(item => item.username === username && !item.disabled)
   if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+    // 失败也记一笔（便于排查异常登录尝试），但只留账号不留密码
+    writeAudit('auth.loginFail', null, null, { username, actorName: '未登录' })
     throw new ApiError(401, 'INVALID_CREDENTIALS', '账号或密码错误')
   }
+  writeAudit('auth.login', user, null, { username })
   return user
 }
 
@@ -39,6 +42,7 @@ export function loginByFeishuCode(body) {
   if (!user) {
     throw new ApiError(401, 'USER_NOT_FOUND', '对应用户不存在或已停用')
   }
+  writeAudit('auth.login', user, null, { username, method: 'feishu' })
   return user
 }
 
@@ -62,7 +66,7 @@ export function changeOwnPassword(user, body) {
   delete user.password // 清掉可能残留的历史明文字段
   user.mustChangePassword = false
   user.passwordUpdatedAt = nowText()
-  auditLogs.push({ action: 'auth.changePassword', actorId: user.id, actorName: user.userName, at: nowText() })
+  writeAudit('auth.changePassword', user, null, { note: '本人修改密码' })
   return { changed: true }
 }
 
@@ -78,7 +82,7 @@ export function resetPassword(actor, targetId, newPassword) {
   delete target.password
   target.mustChangePassword = true
   target.passwordUpdatedAt = nowText()
-  auditLogs.push({ action: 'auth.resetPassword', actorId: actor.id, targetId, at: nowText() })
+  writeAudit('user.resetPassword', actor, target, { note: '重置后需首次登录改密' })
   return { reset: true, mustChangePassword: true }
 }
 
