@@ -18,7 +18,9 @@ import {
   currentStage, deriveStatus, assertSupplierVisible, assertConfirmable, computeRowAmount, stageCount,
   canOriginate, isSupplierOnly, isMyTurn, sameSupplier,
   // 独立结算：持该身份(角色19)的供应商，单据跳过「统结方提交」与「财务二次确认」
-  isSettlementExempt, stageListOf, nextApplicableIndex, currentStageIndex
+  isSettlementExempt, stageListOf, nextApplicableIndex, currentStageIndex,
+  // 第一环节支持指派多人（多人确认）：全部确认后才流转到下一环节
+  assigneesOf, confirmedInStage, allAssigneesConfirmed
 } from '../lib/bill-flow.js'
 import { hasRole, hasAnyRole } from '../lib/roles.js'
 import { ACCEPTANCE_MAX_ROWS } from './excel.js'
@@ -277,7 +279,7 @@ function actorText(user) {
 // 当前环节的处理人姓名：第一环节用被指派的工程师，其余取持有该环节角色的账号
 function handlerNamesOf(bill, stage) {
   if (!stage) return []
-  if (stage.key === 'BIZ') return bill.assigneeName ? [bill.assigneeName] : []
+  if (stage.key === 'BIZ') return assigneesOf(bill).map(a => a.name).filter(Boolean)
   return users.filter(u => !u.disabled && hasRole(u, stage.roleType)).map(u => u.userName)
 }
 function handlerText(bill, stage) {
@@ -295,9 +297,16 @@ function currentHandlerOf(bill) {
   if (!stage) return ''
   const pendingLabel = BILL_STATUS[stage.status] || `待${roleNameOf(stage)}确认`
   // 第一环节尚未指派工程师时：提示由财务指定
-  if (stage.key === 'BIZ' && !bill.assigneeId) {
+  if (stage.key === 'BIZ' && !assigneesOf(bill).length) {
     const fins = users.filter(u => !u.disabled && hasRole(u, ROLE.FINANCE)).map(u => u.userName)
     return fins.length ? `${pendingLabel}-待指派（${fins.join('、')} 指定）` : `${pendingLabel}-待指派`
+  }
+  // 多人确认：只显示「还没确认」的工程师，已确认的不再显示为待办人
+  if (stage.key === 'BIZ') {
+    const list = assigneesOf(bill)
+    const pending = list.filter(a => !confirmedInStage(bill, 'BIZ', a.id))
+    const waitNames = (pending.length ? pending : list).map(a => a.name).filter(Boolean)
+    return waitNames.length ? `${pendingLabel}-${waitNames.join('、')}` : pendingLabel
   }
   const names = handlerNamesOf(bill, stage)
   return names.length ? `${pendingLabel}-${names.join('、')}` : pendingLabel
@@ -314,7 +323,7 @@ function notifyNextStage(bill) {
   const stage = currentStage(bill)
   if (!stage) return
   // 第一环节尚未指派工程师时：提醒财务（张海霞）先指派，而不是直接推给全体工程师
-  if (stage.key === 'BIZ' && !bill.assigneeId) {
+  if (stage.key === 'BIZ' && !assigneesOf(bill).length) {
     notifyAssignNeeded(bill)
     return
   }
@@ -333,6 +342,12 @@ function notifyAssignNeeded(bill) {
 export async function repairBillStages() {
   let fixed = 0
   for (const bill of bills) {
+    // 历史单据迁移：早期只有单值 assigneeId，统一归一为 assignees 数组（多人确认按数组判定）
+    if ((!Array.isArray(bill.assignees) || !bill.assignees.length) && bill.assigneeId) {
+      bill.assignees = [{ id: Number(bill.assigneeId), name: bill.assigneeName || '' }]
+      await saveBill(bill)
+      fixed++
+    }
     // 独立结算身份回填：账号新增/取消「独立结算」角色后，历史单据一并跟上
     const exempt = resolveSettlementExempt(bill.supplierName)
     if (bill.settlementExempt !== exempt) {
@@ -495,29 +510,38 @@ export async function assignEngineer(user, id, body = {}) {
   if ((bill.confirms || []).length > 0) {
     throw new ApiError(409, 'BILL_STATE_CONFLICT', '该单据已开始确认，不可改派')
   }
-  const engineerId = Number(body.engineerId || 0)
-  const engineer = users.find(u => u.id === engineerId && !u.disabled && hasRole(u, ROLE.BIZ_ENGINEER))
-  if (!engineer) throw new ApiError(422, 'VALIDATION_ERROR', '请选择有效的工程师（需持「工程师」角色）')
+  // 支持多选（多人确认，人数不限）：engineerIds 数组优先，兼容旧的 engineerId 单值
+  const rawIds = Array.isArray(body.engineerIds)
+    ? body.engineerIds
+    : (body.engineerId === undefined || body.engineerId === null || body.engineerId === '' ? [] : [body.engineerId])
+  const ids = [...new Set(rawIds.map(Number).filter(Boolean))]
+  if (!ids.length) throw new ApiError(422, 'VALIDATION_ERROR', '请选择工程师（需持「工程师」角色）')
+  const engineers = ids.map(eid => users.find(u => u.id === eid && !u.disabled && hasRole(u, ROLE.BIZ_ENGINEER)))
+  if (engineers.some(e => !e)) throw new ApiError(422, 'VALIDATION_ERROR', '请选择有效的工程师（需持「工程师」角色）')
 
-  const prevAssigneeId = bill.assigneeId || null
-  bill.assigneeId = engineer.id
-  bill.assigneeName = engineer.userName
+  const prevIds = assigneesOf(bill).map(a => a.id)
+  bill.assignees = engineers.map(e => ({ id: e.id, name: e.userName }))
+  // 兼容字段：保留首位工程师，供列表/导出等旧口径读取
+  bill.assigneeId = engineers[0].id
+  bill.assigneeName = engineers[0].userName
   bill.assignedAt = nowText()
   bill.assignedBy = user.userName
   bill.updatedAt = nowText()
   await saveBill(bill)
-  audit('finance.bill.assign', user, bill, { assigneeId: engineer.id, assigneeName: engineer.userName })
+  audit('finance.bill.assign', user, bill, { assignees: engineers.map(e => e.userName) })
 
-  // 改派：把原工程师手里的本单待办标记为已读并明确告知，避免两个人同时看到同一张单
-  if (prevAssigneeId && prevAssigneeId !== engineer.id) {
-    markRefReadForUsers('bill', bill.id, [prevAssigneeId])
-    createNotification([prevAssigneeId], 'todo', `【已改派】${bill.batchName}`,
-      `${billSummary(bill)}\n本单已由 ${actorText(user)} 改派给 业务工程师-${engineer.userName}，你无需再确认`, 'bill', bill.id)
+  const names = engineers.map(e => e.userName).join('、')
+  // 被移出的人：待办标记已读并告知，避免仍按旧指派去确认
+  const removed = prevIds.filter(x => !engineers.some(e => e.id === x))
+  if (removed.length) {
+    markRefReadForUsers('bill', bill.id, removed)
+    createNotification(removed, 'todo', `【已改派】${bill.batchName}`,
+      `${billSummary(bill)}\n本单已由 ${actorText(user)} 改派给 业务工程师-${names}，你无需再确认`, 'bill', bill.id)
   }
 
-  // 只通知被指派的工程师本人
-  createNotification([engineer.id], 'todo', `【待工程师确认】${bill.batchName}`,
-    `${billSummary(bill)}\n由 ${actorText(user)} 指派给 业务工程师-${engineer.userName} 做本单数据确认，请核对数据明细与成本中心比例后确认`, 'bill', bill.id)
+  // 通知每一位被指派者（多人确认时两人都要处理）
+  createNotification(engineers.map(e => e.id), 'todo', `【待工程师确认】${bill.batchName}`,
+    `${billSummary(bill)}\n由 ${actorText(user)} 指派给 业务工程师-${names} 做本单数据确认${engineers.length > 1 ? `（多人确认，${engineers.length} 位全部确认后才流转）` : ''}，请核对数据明细与成本中心比例后确认`, 'bill', bill.id)
   return getBillDetail(user, bill.id)
 }
 
@@ -584,7 +608,8 @@ function buildChain(bill) {
     label: s.label,
     short: s.short,
     // 只统计「当前轮」的确认记录：驳回重提后上一轮的通过不再算数
-    done: currentConfirms.some(c => c.stageKey === s.key),
+    // 多人会签：第一环节要「全部被指派者」都确认才算完成，否则进度条会提前打勾
+    done: s.key === 'BIZ' ? allAssigneesConfirmed(bill) : currentConfirms.some(c => c.stageKey === s.key),
     active: !rejected && bill.status !== 'APPROVED' && activeIndex === s.index,
     error: rejected && lastRejectStage === s.index
   }))
@@ -615,6 +640,11 @@ function toListItem(user, bill) {
     statusLabel: (bill.status === 'PENDING_BIZ' && !bill.assigneeId)
       ? '待指派工程师'
       : (BILL_STATUS[bill.status] || bill.status),
+    // 被指派工程师（多人确认；历史单值字段已归一为数组）
+    assignees: assigneesOf(bill).map(a => ({
+      ...a,
+      confirmed: confirmedInStage(bill, 'BIZ', a.id)
+    })),
     assigneeId: bill.assigneeId || null,
     assigneeName: bill.assigneeName || '',
     assignedBy: bill.assignedBy || '',
@@ -1014,6 +1044,23 @@ export function previewFormula(user, body = {}) {
 }
 
 // 抄送统一结算方：飞书推送 + 站内待办（单据全部确认通过后，提示统结方提交总金额）
+// 多人会签：一人确认后还有人没确认 → 通知提交人并提醒未确认的工程师
+function notifyPartialBizConfirm(bill, confirmer) {
+  const pending = assigneesOf(bill).filter(a => !confirmedInStage(bill, 'BIZ', a.id))
+  const done = assigneesOf(bill).filter(a => confirmedInStage(bill, 'BIZ', a.id)).map(a => a.name).join('、')
+  const wait = pending.map(a => a.name).join('、')
+  if (bill.createdBy) {
+    createNotification([bill.createdBy], 'finance', `【部分确认】${bill.batchName}`,
+      `${billSummary(bill)}
+业务工程师-${confirmer.userName} 已确认；还需 ${wait} 确认后才进入下一环节`, 'bill', bill.id)
+  }
+  if (pending.length) {
+    createNotification(pending.map(a => a.id), 'todo', `【待工程师确认】${bill.batchName}`,
+      `${billSummary(bill)}
+${done} 已确认，本单为多人确认，请你核对后确认`, 'bill', bill.id)
+  }
+}
+
 function notifySettlementSubmitter(bill) {
   // 免统结供应商（如康尼瑞行）与统结方无合同、单据不走统结环节，无需抄送统结方
   if (isSettlementExempt(bill)) return
@@ -1296,13 +1343,17 @@ export async function confirmBill(user, id, body = {}) {
   const stageIndex = assertConfirmable(user, bill)
   const stage = BILL_STAGES[stageIndex]
   const comment = String(body.comment || '').trim()
-  // 第一环节（业务工程师确认）：已指派时只有被指派的工程师能确认
+  // 第一环节（业务工程师确认）：只有被指派的工程师能确认；多人确认时各自确认一次
   if (stage.key === 'BIZ') {
-    if (!bill.assigneeId) {
+    const list = assigneesOf(bill)
+    if (!list.length) {
       throw new ApiError(409, 'ASSIGN_REQUIRED', '该单据尚未指派工程师，请先由财务指定确认人')
     }
-    if (Number(bill.assigneeId) !== Number(user.id)) {
-      throw new ApiError(403, 'FORBIDDEN', `该单据已指派给 ${bill.assigneeName || '其他工程师'}，你不是该单据的确认人`)
+    if (!list.some(a => Number(a.id) === Number(user.id))) {
+      throw new ApiError(403, 'FORBIDDEN', `该单据已指派给 ${list.map(a => a.name).join('、') || '其他工程师'}，你不是该单据的确认人`)
+    }
+    if (confirmedInStage(bill, 'BIZ', user.id)) {
+      throw new ApiError(409, 'BILL_STATE_CONFLICT', '你已确认过本单，无需重复确认')
     }
   }
   // 财务节点必须先完成核算，保证"每一单都经财务计算"
@@ -1396,6 +1447,15 @@ export async function confirmBill(user, id, body = {}) {
     ...(settlementInfo ? { settlement: settlementInfo } : {}),
     ...(comparisonInfo ? { comparison: comparisonInfo } : {})
   })
+  // 多人会签：第一环节需「全部被指派工程师」确认后才流转；还有人就停在本环节
+  if (stage.key === 'BIZ' && !allAssigneesConfirmed(bill)) {
+    bill.updatedAt = nowText()
+    await saveBill(bill)
+    audit('finance.bill.confirm', user, bill, { stageKey: stage.key, comment, partial: true })
+    notifyPartialBizConfirm(bill, user)
+    return getBillDetail(user, bill.id)
+  }
+
   // 推进到下一个「对本单适用」的环节：免统结供应商会跳过统结方/财务二次确认
   bill.currentStage = nextApplicableIndex(bill, stageIndex + 1)
   bill.rejected = false

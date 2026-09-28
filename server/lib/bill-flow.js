@@ -132,13 +132,43 @@ export function isPending(bill) {
   return bill.status !== 'APPROVED' && bill.status !== 'REJECTED'
 }
 
+// 单据的被指派工程师（支持多人会签；兼容历史的单值字段 assigneeId/assigneeName）
+export function assigneesOf(bill) {
+  if (Array.isArray(bill?.assignees) && bill.assignees.length) {
+    return bill.assignees.map(a => ({ id: Number(a.id), name: a.name || a.userName || '' }))
+  }
+  if (bill?.assigneeId) return [{ id: Number(bill.assigneeId), name: bill.assigneeName || '' }]
+  return []
+}
+
+// 某人在「当前轮」的某环节是否已确认（双人确认据此判断还有谁没确认）
+export function confirmedInStage(bill, stageKey, userId, round) {
+  const r = round === undefined ? (bill?.resubmitCount || 0) : round
+  return (bill?.confirms || []).some(c =>
+    c.stageKey === stageKey &&
+    Number(c.userId) === Number(userId) &&
+    (typeof c.round !== 'number' || c.round === r))
+}
+
+// 第一环节是否已由「全体被指派工程师」确认（双人确认：全部确认后才轮到下一个环节）
+export function allAssigneesConfirmed(bill) {
+  const list = assigneesOf(bill)
+  if (!list.length) return false
+  return list.every(a => confirmedInStage(bill, 'BIZ', a.id))
+}
+
 // 该用户当前是否轮到确认本单（多角色账号命中任一即可）
 export function isMyTurn(user, bill) {
   const stage = currentStage(bill)
   if (!stage || !hasRole(user, stage.roleType)) return false
-  // 第一环节（工程师确认）由财务指定具体工程师：只有被指派的人算轮到自己，
-  // 否则改派后「原工程师」和「新工程师」会同时显示可确认
-  if (stage.key === 'BIZ') return !!bill.assigneeId && Number(bill.assigneeId) === Number(user.id)
+  // 第一环节（工程师确认）由财务指定具体工程师，支持指派多人（双人确认）：
+  // 只有被指派的人算轮到自己，且各自只需确认一次（避免同一人重复确认把人头凑满）
+  if (stage.key === 'BIZ') {
+    const list = assigneesOf(bill)
+    if (!list.length) return false
+    if (!list.some(a => Number(a.id) === Number(user.id))) return false
+    return !confirmedInStage(bill, 'BIZ', user.id)
+  }
   return true
 }
 

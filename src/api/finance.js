@@ -53,8 +53,12 @@ export const settlementSummaryApi = (params = {}) => {
 // 供应商姓名清单（甲方PM 代建单时选供应商；口径=姓名，不再用归属供应商 id）
 export const listSupplierNamesApi = () => request('/finance/supplier-names')
 // 指派工程师（财务）：供应商提交后指定本项目的数据确认人
-export const assignEngineerApi = (id, engineerId) =>
-  request(`/finance/bills/${id}/assign`, { method: 'POST', body: { engineerId } })
+// 支持传数组（多人确认，人数不限：全部确认后才流转到下一环节）
+export const assignEngineerApi = (id, engineerIds) =>
+  request(`/finance/bills/${id}/assign`, {
+    method: 'POST',
+    body: { engineerIds: Array.isArray(engineerIds) ? engineerIds : [engineerIds] }
+  })
 
 // 统结方提交统结数据（导入解析后提交）/ 重新提交（停在二次确认时可改正）
 export const resubmitSettlementApi = (id, payload) =>

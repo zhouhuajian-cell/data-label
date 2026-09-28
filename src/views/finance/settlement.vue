@@ -156,9 +156,11 @@
         单据：{{ assignBill?.billNo }}（{{ assignBill?.batchName }}）<br>
         供应商：{{ assignBill?.supplierName }} · 项目：{{ assignBill?.projectName || '-' }}
       </div>
-      <el-select v-model="assignEngineerId" placeholder="选择该项目的数据确认工程师" style="width:100%">
+      <el-select v-model="assignEngineerIds" multiple
+        placeholder="选择数据确认工程师（可多选）" style="width:100%">
         <el-option v-for="e in engineerOptions" :key="e.id" :label="e.userName" :value="e.id" />
       </el-select>
+      <div class="assign-hint">可指派多名工程师（多人确认）：全部确认通过后，才会流转到财务环节。</div>
       <template #footer>
         <el-button @click="assignVisible = false">取消</el-button>
         <el-button type="primary" :loading="assigning" @click="onAssign">指派并通知</el-button>
@@ -333,12 +335,14 @@ function openDetail(id) { detailBillId.value = id; detailVisible.value = true }
 const assignVisible = ref(false)
 const assignBill = ref(null)
 const engineerOptions = ref([])
-const assignEngineerId = ref(null)
+const assignEngineerIds = ref([])
 const assigning = ref(false)
 
 async function openAssign(row) {
   assignBill.value = row
-  assignEngineerId.value = row.assigneeId || null
+  assignEngineerIds.value = Array.isArray(row.assignees) && row.assignees.length
+    ? row.assignees.map(a => a.id)
+    : (row.assigneeId ? [row.assigneeId] : [])
   assignVisible.value = true
   if (!engineerOptions.value.length) {
     try { const { data } = await listEngineersApi(); engineerOptions.value = data || [] } catch { /* 忽略 */ }
@@ -346,11 +350,13 @@ async function openAssign(row) {
 }
 
 async function onAssign() {
-  if (!assignEngineerId.value) { ElMessage.warning('请选择工程师'); return }
+  if (!assignEngineerIds.value.length) { ElMessage.warning('请选择工程师'); return }
   assigning.value = true
   try {
-    await assignEngineerApi(assignBill.value.id, assignEngineerId.value)
-    ElMessage.success('已指派，已通知该工程师')
+    await assignEngineerApi(assignBill.value.id, assignEngineerIds.value)
+    ElMessage.success(assignEngineerIds.value.length > 1
+      ? `已指派 ${assignEngineerIds.value.length} 名工程师（全部确认后流转），已通知`
+      : '已指派，已通知该工程师')
     assignVisible.value = false
     await refreshAll()
   } catch { /* 错误提示由 request 统一处理 */ } finally { assigning.value = false }
@@ -401,6 +407,7 @@ onMounted(async () => {
 .tip { font-size: 12.5px; color: var(--text-3); }
 .cmp-bad { color: var(--danger, #d64550); font-weight: 700; }
 .assign-tip { font-size: 13px; color: var(--text-2); line-height: 1.8; margin-bottom: 12px; }
+.assign-hint { font-size: 12px; color: #909399; margin-top: 8px; line-height: 1.6; }
 .pager { margin-top: 12px; justify-content: flex-end; }
 .calc-wrap { max-height: 62vh; overflow-y: auto; }
 .mb14 { margin-bottom: 14px; }

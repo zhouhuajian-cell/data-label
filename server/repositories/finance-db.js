@@ -117,6 +117,7 @@ async function ensureColumns(p) {
     [BILLS, 'coefficient', "DECIMAL(12,4) NOT NULL DEFAULT 1"],
     [BILLS, 'cost_centers', "JSON NULL"],
     [BILLS, 'attachments', "JSON NULL"],
+    [BILLS, 'assignees', "JSON NULL"],
     [BILLS, 'assignee_id', "INT NULL"],
     [BILLS, 'assignee_name', "VARCHAR(64) NULL"],
     [BILLS, 'assigned_by', "VARCHAR(64) NULL"],
@@ -183,6 +184,7 @@ function rowToBill(r) {
     formula: r.formula === undefined ? null : r.formula,
     costCenters: parseJson(r.cost_centers) || [],
     attachments: parseJson(r.attachments) || [],
+    assignees: parseJson(r.assignees) || [],
     assigneeId: r.assignee_id === null || r.assignee_id === undefined ? null : Number(r.assignee_id),
     assigneeName: r.assignee_name || '',
     assignedBy: r.assigned_by || '',
@@ -221,6 +223,7 @@ function billParams(b) {
     b.batchName ?? null, b.period ?? null, b.status, b.currentStage ?? 0, b.rejected ? 1 : 0, b.rejectReason ?? null,
     b.itemCount ?? 0, b.totalQuantity ?? 0, b.totalAmount ?? 0, b.resubmitCount ?? 0,
     b.formula ?? null, b.coefficient ?? 1, json(b.costCenters || []), json(b.attachments || []),
+    json(b.assignees || []),
     b.assigneeId ?? null, b.assigneeName ?? null, b.assignedBy ?? null, b.assignedAt ?? null,
     b.sourceFileName ?? null, b.importMode ?? null, b.remark ?? null,
     json(b.finance), json(b.confirms || []), json(b.rejections || []),
@@ -244,10 +247,10 @@ export async function saveBill(bill) {
     `INSERT INTO ${BILLS} (id, bill_no, project_id, project_name, supplier_id, supplier_name, batch_name, period,
        status, current_stage, rejected, reject_reason, item_count, total_quantity, total_amount, resubmit_count,
        formula, coefficient, cost_centers, attachments,
-       assignee_id, assignee_name, assigned_by, assigned_at,
+       assignees, assignee_id, assignee_name, assigned_by, assigned_at,
        source_file_name, import_mode, remark, finance, confirms, rejections,
        created_by, created_by_name, created_at, updated_at, approved_at, comparison, urges, supplier_submits)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON DUPLICATE KEY UPDATE
        project_id=VALUES(project_id), project_name=VALUES(project_name), supplier_id=VALUES(supplier_id),
        supplier_name=VALUES(supplier_name), batch_name=VALUES(batch_name), period=VALUES(period),
@@ -255,7 +258,7 @@ export async function saveBill(bill) {
        reject_reason=VALUES(reject_reason), item_count=VALUES(item_count), total_quantity=VALUES(total_quantity),
        total_amount=VALUES(total_amount), resubmit_count=VALUES(resubmit_count),
        formula=VALUES(formula), coefficient=VALUES(coefficient), cost_centers=VALUES(cost_centers),
-       attachments=VALUES(attachments), assignee_id=VALUES(assignee_id), assignee_name=VALUES(assignee_name),
+       attachments=VALUES(attachments), assignees=VALUES(assignees), assignee_id=VALUES(assignee_id), assignee_name=VALUES(assignee_name),
        assigned_by=VALUES(assigned_by), assigned_at=VALUES(assigned_at),
        source_file_name=VALUES(source_file_name), import_mode=VALUES(import_mode), remark=VALUES(remark),
        finance=VALUES(finance), confirms=VALUES(confirms), rejections=VALUES(rejections),

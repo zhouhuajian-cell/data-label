@@ -599,3 +599,66 @@ test('确认记录含供应商提交：提交人/单数金额，重提再记一�
   const asSupplier = await getBillDetail(supplierA, bill.id)
   assert.equal(asSupplier.confirms[0].stageKey, 'SUPPLIER')
 })
+
+// ===== 多人确认：第一环节可指派多名工程师，全部确认后才流转（人数不限） =====
+test('多人确认：指派两名工程师，全部确认后才进入财务', async () => {
+  const engineer2 = { id: SECOND_ENGINEER_ID, roleType: 13, roleTypes: [13], userName: '赵晓伟' }
+  const bill = await makeBill()
+  await assignEngineer(finance, bill.id, { engineerIds: [ENGINEER_ID, SECOND_ENGINEER_ID] })
+
+  const d0 = await getBillDetail(pm, bill.id)
+  assert.equal(d0.status, 'PENDING_BIZ')
+  assert.equal(d0.assignees.length, 2, '应记录两名被指派工程师')
+  assert.deepEqual(d0.assignees.map(a => a.confirmed), [false, false])
+  assert.equal(d0.currentHandler, '待工程师确认-业务工程师、赵晓伟', '待办人应列出未确认的两人')
+
+  // 第一位确认后：仍停在待工程师确认（不能流转），且本人不能重复确认
+  await confirmBill(bizEngineer, bill.id, { comment: '第一人已核对' })
+  const d1 = await getBillDetail(pm, bill.id)
+  assert.equal(d1.status, 'PENDING_BIZ', '双人确认：只确认一人不应流转')
+  assert.equal(d1.assignees.filter(a => a.confirmed).length, 1)
+  assert.equal(d1.currentHandler, '待工程师确认-赵晓伟', '已确认的人不再显示为待办人')
+  await assert.rejects(() => confirmBill(bizEngineer, bill.id, {}), err => err.code === 'BILL_STATE_CONFLICT')
+
+  // 第二位确认后：才流转到财务
+  await confirmBill(engineer2, bill.id, { comment: '第二人已核对' })
+  const d2 = await getBillDetail(pm, bill.id)
+  assert.equal(d2.status, 'PENDING_FINANCE', '两人都确认后才流转')
+  assert.equal(d2.confirms.filter(c => c.stageKey === 'BIZ').length, 2, '两条工程师确认记录')
+})
+
+test('多人确认：支持指派多人（不限两人），非指派者不能确认', async () => {
+  // 第三位工程师（内存 seed 只有两位，补一个用于验证「不限人数」）
+  const THIRD_ID = 904
+  if (!users.some(u => u.id === THIRD_ID)) {
+    users.push({ id: THIRD_ID, username: 'eng_c', userName: '第三位工程师', roleType: 13, roleTypes: [13], disabled: false })
+  }
+  const third = { id: THIRD_ID, roleType: 13, roleTypes: [13], userName: '第三位工程师' }
+  const bill = await makeBill()
+  // 三人也能指派（后续可能增加人数，不设上限）
+  await assignEngineer(finance, bill.id, { engineerIds: [ENGINEER_ID, SECOND_ENGINEER_ID, THIRD_ID] })
+  const d = await getBillDetail(pm, bill.id)
+  assert.equal(d.assignees.length, 3, '应支持指派 3 人')
+
+  // 三人会签：前两人确认后仍不流转，第三人确认后才流转
+  await confirmBill(bizEngineer, bill.id, {})
+  await confirmBill(third, bill.id, {})
+  assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_BIZ', '三人只确认两人不应流转')
+  await confirmBill({ id: SECOND_ENGINEER_ID, roleType: 13, roleTypes: [13], userName: '赵晓伟' }, bill.id, {})
+  assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_FINANCE', '三人全部确认后才流转')
+
+  // 未在指派名单里的工程师不能确认
+  const bill2 = await makeBill()
+  await assignEngineer(finance, bill2.id, { engineerIds: [ENGINEER_ID, SECOND_ENGINEER_ID] })
+  const outsider = { id: 998, roleType: 13, roleTypes: [13], userName: '其他工程师' }
+  await assert.rejects(() => confirmBill(outsider, bill2.id, {}), err => err.code === 'FORBIDDEN')
+})
+
+test('单人指派仍然兼容（一人确认即流转，不受双人影响）', async () => {
+  const bill = await makeBill()
+  await assignEngineer(finance, bill.id, { engineerId: ENGINEER_ID })   // 旧的单值写法
+  const d0 = await getBillDetail(pm, bill.id)
+  assert.equal(d0.assignees.length, 1)
+  await confirmBill(bizEngineer, bill.id, {})
+  assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_FINANCE', '单人确认即流转')
+})

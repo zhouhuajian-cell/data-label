@@ -11,6 +11,14 @@
             <el-step title="供应商提交" :description="detail.createdByName" />
             <el-step v-for="st in detail.stages" :key="st.key" :title="st.label" :description="stepDesc(st)" :status="stepStatus(st)" />
           </el-steps>
+          <!-- 多人确认：指派了多名工程师时，逐人显示确认状态 -->
+          <div v-if="(detail.assignees || []).length > 1" class="multi-assign mb12">
+            <span class="ma-label">多人确认</span>
+            <span v-for="a in detail.assignees" :key="a.id" class="ma-item" :class="{ ok: a.confirmed }">
+              {{ a.name }} {{ a.confirmed ? '已确认' : '待确认' }}
+            </span>
+            <span class="ma-tip">全部确认通过后才会流转到下一环节</span>
+          </div>
           <!-- 独立结算（角色19）：与统结方无合同，链路里没有统结方/财务二次确认两环节 -->
           <el-alert v-if="detail.settlementExempt" type="info" :closable="false" show-icon class="mb12"
             title="本单为独立结算：不经统一结算方，财务确认后直接流转至负责人。" />
@@ -586,6 +594,12 @@ defineExpose({ refresh })
 </script>
 
 <style scoped>
+/* 多人确认：各位工程师的确认状态 */
+.multi-assign { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.multi-assign .ma-label { color: var(--text-3, #909399); }
+.multi-assign .ma-item { padding: 2px 8px; border-radius: 10px; background: rgba(230, 162, 60, 0.14); color: #b88230; }
+.multi-assign .ma-item.ok { background: rgba(24, 160, 88, 0.12); color: #18a058; }
+.multi-assign .ma-tip { color: var(--text-3, #909399); }
 .detail-wrap { padding: 0 2px 24px; }
 .attach-list { display: flex; gap: 8px; flex-wrap: wrap; }
 .settle-box { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
