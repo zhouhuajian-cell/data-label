@@ -662,3 +662,43 @@ test('单人指派仍然兼容（一人确认即流转，不受双人影响）',
   await confirmBill(bizEngineer, bill.id, {})
   assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_FINANCE', '单人确认即流转')
 })
+
+// ===== 驳回重提后可重新指派工程师（不指派则沿用上一轮）=====
+test('驳回重提后：财务可重新指派工程师；不改派则沿用上一轮的人', async () => {
+  const engineer2 = { id: SECOND_ENGINEER_ID, roleType: 13, roleTypes: [13], userName: '赵晓伟' }
+
+  // A) 重提后不重新指派 → 仍是原工程师，且只有本人能确认
+  const billA = await makeAssignedBill()          // 已指派 ENGINEER_ID
+  await confirmBill(bizEngineer, billA.id, {})
+  await rejectBill(finance, billA.id, { reason: '需修正' })
+  const reA = await resubmitBill(supplierA, billA.id)
+  assert.equal(reA.status, 'PENDING_BIZ')
+  assert.equal(reA.assignees.length, 1, '不改派则沿用上一轮工程师')
+  assert.equal(reA.assignees[0].id, ENGINEER_ID)
+
+  // B) 重提后财务重新指派 → 换成另一位工程师，新人可确认、旧人不能
+  const billB = await makeAssignedBill()
+  await confirmBill(bizEngineer, billB.id, {})
+  await rejectBill(finance, billB.id, { reason: '需修正' })
+  await resubmitBill(supplierA, billB.id)
+
+  // 重提后本轮尚无人确认 → 允许改派（这正是本次需求的场景）
+  await assignEngineer(finance, billB.id, { engineerIds: [SECOND_ENGINEER_ID] })
+  const reB = await getBillDetail(pm, billB.id)
+  assert.equal(reB.assignees[0].id, SECOND_ENGINEER_ID)
+  await assert.rejects(() => confirmBill(bizEngineer, billB.id, {}), err => err.code === 'FORBIDDEN')
+  await confirmBill(engineer2, billB.id, { comment: '新人核对' })
+  assert.equal((await getBillDetail(pm, billB.id)).status, 'PENDING_FINANCE', '新工程师确认后可流转')
+})
+
+test('驳回重提后：若本轮已有人确认，则不可再改派', async () => {
+  const bill = await makeAssignedBill()
+  await confirmBill(bizEngineer, bill.id, {})
+  await rejectBill(finance, bill.id, { reason: '需修正' })
+  await resubmitBill(supplierA, bill.id)
+  await confirmBill(bizEngineer, bill.id, {})       // 本轮已确认
+  await assert.rejects(
+    () => assignEngineer(finance, bill.id, { engineerIds: [SECOND_ENGINEER_ID] }),
+    err => err.code === 'BILL_STATE_CONFLICT'
+  )
+})

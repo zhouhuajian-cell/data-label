@@ -507,8 +507,13 @@ export async function assignEngineer(user, id, body = {}) {
   if (bill.status !== 'PENDING_BIZ') {
     throw new ApiError(409, 'BILL_STATE_CONFLICT', `仅「待指派/待工程师确认」的单据可指派（当前：${BILL_STATUS[bill.status] || bill.status}）`)
   }
-  if ((bill.confirms || []).length > 0) {
-    throw new ApiError(409, 'BILL_STATE_CONFLICT', '该单据已开始确认，不可改派')
+  // 本轮已有确认动作时不可改派；驳回后供应商重新提交属于新一轮，此时允许财务重新选择工程师
+  // （不做改动则沿用上一轮的指派，见 resubmitBill 不清空 assignees）
+  const assignRound = bill.resubmitCount || 0
+  const confirmedThisRound = (bill.confirms || []).some(c =>
+    typeof c.round !== 'number' || c.round === assignRound)
+  if (confirmedThisRound) {
+    throw new ApiError(409, 'BILL_STATE_CONFLICT', '该单据本轮已开始确认，不可改派')
   }
   // 支持多选（多人确认，人数不限）：engineerIds 数组优先，兼容旧的 engineerId 单值
   const rawIds = Array.isArray(body.engineerIds)
@@ -1535,6 +1540,15 @@ export async function resubmitBill(user, id) {
 
   audit('finance.bill.resubmit', user, bill, { resubmitCount: bill.resubmitCount })
   notifyNextStage(bill)
+  // 重新提交后：提示财务可重新选择业务工程师；不重新指派则沿用上一轮的工程师
+  const financeIds = users.filter(u => !u.disabled && hasRole(u, ROLE.FINANCE)).map(u => u.id)
+  if (financeIds.length) {
+    const kept = assigneesOf(bill).map(a => a.name).filter(Boolean)
+    createNotification(financeIds, 'todo', `【已重新提交】${bill.batchName}`,
+      `${billSummary(bill)}\n${actorText(user)} 修正后重新提交（第 ${bill.resubmitCount} 次）。` +
+      `${kept.length ? `默认仍由 业务工程师-${kept.join('、')} 确认` : '该单尚未指派工程师'}；如需变更确认人，请在「财务结算」页重新指派。`,
+      'bill', bill.id)
+  }
   if (bill.createdBy) {
     createNotification([bill.createdBy], 'finance', `【已重新提交】${bill.batchName}`,
       `${billSummary(bill)}\n${actorText(user)} 修正后重新提交（第 ${bill.resubmitCount} 次），确认流程已重新开始，当前环节：${handlerText(bill, BILL_STAGES[0])}`, 'bill', bill.id)
