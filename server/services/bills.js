@@ -1060,9 +1060,11 @@ function notifyPartialBizConfirm(bill, confirmer) {
 业务工程师-${confirmer.userName} 已确认；还需 ${wait} 确认后才进入下一环节`, 'bill', bill.id)
   }
   if (pending.length) {
+    // 点名列出「还需谁确认」而不是只说"你"：这条会同时发给多位未确认者，点名才不会让人误解
+    // （曾出现「赵晓伟 已确认，请你核对」——发给赵晓伟本人时读起来自相矛盾）
     createNotification(pending.map(a => a.id), 'todo', `【待工程师确认】${bill.batchName}`,
       `${billSummary(bill)}
-${done} 已确认，本单为多人确认，请你核对后确认`, 'bill', bill.id)
+业务工程师-${done} 已确认，本单为多人确认，还需 业务工程师-${wait} 核对后确认`, 'bill', bill.id)
   }
 }
 
