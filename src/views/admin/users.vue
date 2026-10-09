@@ -26,15 +26,14 @@
             <el-tag v-if="s.row.mustChangePassword" type="warning" size="small" class="role-tag">待改密</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="210" fixed="right">
+        <el-table-column label="操作" width="250" fixed="right">
           <template #default="s">
             <el-button text size="small" type="primary" @click="openEdit(s.row)">编辑</el-button>
             <el-popconfirm title="重置为默认密码 123456？该账号下次登录需改密" @confirm="onReset(s.row)">
               <template #reference><el-button text size="small" type="warning">重置密码</el-button></template>
             </el-popconfirm>
-            <el-popconfirm title="确定禁用/恢复该账号？" @confirm="onDelete(s.row)">
-              <template #reference><el-button text size="small" type="danger">{{ s.row.disabled ? '恢复' : '禁用' }}</el-button></template>
-            </el-popconfirm>
+            <el-button text size="small" type="warning" @click="onToggleDisabled(s.row)">{{ s.row.disabled ? '启用' : '禁用' }}</el-button>
+            <el-button text size="small" type="danger" @click="onRemove(s.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -73,6 +72,7 @@ import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { ROLE_LABELS, ROLE_TYPE } from '@/utils/constants.js'
 import { listUsersApi, createUserApi, updateUserApi, deleteUserApi, resetUserPasswordApi } from '@/api/admin'
+import { confirmDeleteTwice, esc } from '@/utils/confirm'
 
 const list = ref([])
 const keyword = ref('')
@@ -156,12 +156,28 @@ async function onReset(row) {
   } catch { /* ignore */ }
 }
 
-async function onDelete(row) {
+// 禁用 / 启用：只是状态切换，用编辑接口（保留账号数据）
+async function onToggleDisabled(row) {
+  try {
+    await updateUserApi(row.id, { disabled: !row.disabled })
+    ElMessage.success(row.disabled ? '已启用' : '已禁用')
+    loadList()
+  } catch { /* 提示由 request 统一处理 */ }
+}
+
+// 删除账号：彻底移除（不可恢复），二次红色确认
+async function onRemove(row) {
+  await confirmDeleteTwice({
+    title: '删除账号',
+    first: `确定删除账号「${esc(row.userName)}」（${esc(row.username)}）？`,
+    second: '删除后该账号将从名册中移除、无法再登录，<strong>且不可恢复</strong>。' +
+      '历史操作日志与结算单记录会保留（日志里已冗余保存操作人姓名）。确定继续？'
+  })
   try {
     await deleteUserApi(row.id)
+    ElMessage.success('已删除')
     loadList()
-    ElMessage.success(row.disabled ? '已恢复' : '已禁用')
-  } catch { /* ignore */ }
+  } catch { /* 提示由 request 统一处理 */ }
 }
 
 onMounted(() => { loadList() })

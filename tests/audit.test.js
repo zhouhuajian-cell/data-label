@@ -4,9 +4,10 @@ import { test } from 'node:test'
 import { config } from '../server/config.js'
 config.db.enabled = false // 不触碰真实 MySQL
 import { users, auditLogs } from '../server/repositories/data.js'
-import { createUser, updateUser, deleteUser, adminResetPassword } from '../server/services/users.js'
+import { createUser, updateUser, disableUser, removeUser, adminResetPassword } from '../server/services/users.js'
 import { loginByPassword } from '../server/services/auth.js'
 import { hashPassword } from '../server/lib/password.js'
+import { roleTypesOf } from '../server/lib/roles.js'
 
 const admin = { id: 900, username: 'admin_t', userName: '测试管理员', roleType: 1, roleTypes: [1], disabled: false }
 const lastLog = (action) => [...auditLogs].reverse().find(l => l.action === action)
@@ -49,7 +50,7 @@ test('审计：重置密码与停用账号都留痕', () => {
   assert.equal(rp.actorName, '测试管理员')
   assert.equal(rp.targetName, '审计测试员')
 
-  deleteUser(admin, u.id)
+  disableUser(admin, u.id)
   const dis = lastLog('user.disable')
   assert.equal(dis.targetName, '审计测试员')
   assert.equal(u.disabled, true)
@@ -69,4 +70,53 @@ test('审计：登录成功与失败都留痕（失败只记账号不记密码�
   const bad = lastLog('auth.loginFail')
   assert.equal(bad.username, 'audit_u1')
   assert.equal(JSON.stringify(bad).includes('wrong'), false, '绝不能把密码写进日志')
+})
+
+// ===== 用户删除：彻底移除，带安全约束 =====
+test('删除账号：从名册移除且留痕（含被删账号信息）', async () => {
+  const before = users.length
+  createUser(admin, { username: 'del_u1', userName: '待删账号', roleTypes: [3], password: 'Abc123456' })
+  const u = users.find(x => x.username === 'del_u1')
+  removeUser(admin, u.id)
+
+  assert.equal(users.some(x => x.username === 'del_u1'), false, '应已从名册移除')
+  assert.equal(users.length, before, '总数回到删除前')
+
+  const log = lastLog('user.delete')
+  assert.ok(log, '应记录 user.delete')
+  assert.equal(log.actorName, '测试管理员')
+  assert.equal(log.targetName, '待删账号')
+  assert.equal(log.username, 'del_u1', '日志里留下被删账号的登录名，便于追溯')
+  assert.deepEqual(log.roleTypes, [3])
+})
+
+test('删除账号：不能删自己，但可由其他管理员删除', async () => {
+  // 操作者本身要在名册里，否则会先撞到"用户不存在"
+  if (!users.some(u => u.id === admin.id)) users.push({ ...admin, username: 'admin_t', disabled: false })
+  const self = createUser(admin, { username: 'self_pm', userName: '待删管理员', roleTypes: [1], password: 'Abc123456' })
+  const selfUser = users.find(u => u.id === self.id)
+
+  const before = users.length
+  // 不能删自己
+  assert.throws(() => removeUser(selfUser, self.id), err => err.status === 422)
+  // 不存在的账号
+  assert.throws(() => removeUser(admin, 999999), err => err.status === 404)
+  assert.equal(users.length, before, '上述两种情况都不应真的删掉人')
+
+  // 由其他管理员删除：成功
+  removeUser(admin, self.id)
+  assert.equal(users.some(u => u.id === self.id), false)
+  assert.ok(lastLog('user.delete'), '删除留痕')
+})
+
+test('停用与删除是两件事：停用保留数据可恢复，删除彻底移除', async () => {
+  createUser(admin, { username: 'dis_u1', userName: '停用账号', roleTypes: [3], password: 'Abc123456' })
+  const u = users.find(x => x.username === 'dis_u1')
+  disableUser(admin, u.id)
+  assert.equal(u.disabled, true, '停用只是标记')
+  assert.equal(users.some(x => x.username === 'dis_u1'), true, '停用后仍在名册中')
+  assert.ok(lastLog('user.disable'), '停用留痕')
+
+  removeUser(admin, u.id)
+  assert.equal(users.some(x => x.username === 'dis_u1'), false, '删除后才真正移除')
 })

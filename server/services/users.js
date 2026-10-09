@@ -99,14 +99,38 @@ export function updateUser(user, id, body) {
   return toSafeUser(u)
 }
 
-export function deleteUser(user, id) {
+// 停用账号（保留数据，可再启用）
+export function disableUser(user, id) {
   requirePM(user)
   const u = users.find(item => item.id === id)
   if (!u) throw new ApiError(404, 'NOT_FOUND', '用户不存在')
-  if (u.id === user.id) throw new ApiError(422, 'VALIDATION_ERROR', '不能禁用当前登录账号')
+  if (u.id === user.id) throw new ApiError(422, 'VALIDATION_ERROR', '不能停用当前登录账号')
   u.disabled = true
   writeAudit('user.disable', user, u, { note: '停用账号（保留数据，可再启用）' })
-  return { deleted: true }
+  return { disabled: true }
+}
+
+// 彻底删除账号（不可恢复，从账号名册移除）。
+// 安全约束：不能删自己；不能删掉最后一个启用中的管理员（否则没人能再进管理页）。
+// 单据与日志仍保留：日志里的操作人姓名是冗余存储的，被删账号的历史记录照样可读。
+export function removeUser(user, id) {
+  requirePM(user)
+  const idx = users.findIndex(item => item.id === id)
+  if (idx < 0) throw new ApiError(404, 'NOT_FOUND', '用户不存在')
+  const target = users[idx]
+  if (target.id === user.id) throw new ApiError(422, 'VALIDATION_ERROR', '不能删除当前登录账号')
+  // 防御性校验：删人者自己必须是管理员（requirePM 已保证），因此当他是唯一管理员时
+  // 会先撞到上面的「不能删自己」；这条保护只在将来放开删除权限时才可能生效
+  if (roleTypesOf(target).includes(1)) {
+    const otherAdmins = users.filter(u => u.id !== target.id && !u.disabled && roleTypesOf(u).includes(1))
+    if (!otherAdmins.length) {
+      throw new ApiError(422, 'VALIDATION_ERROR', '不能删除最后一个管理员账号，请先指定其他管理员')
+    }
+  }
+  const snapshot = { username: target.username, userName: target.userName, roleTypes: roleTypesOf(target), disabled: !!target.disabled }
+  users.splice(idx, 1)
+  writeAudit('user.delete', user, target, { ...snapshot, note: '彻底删除账号（不可恢复）' })
+  return { deleted: true, removed: snapshot }
 }
 
 // 管理员重置密码（被重置账号下次登录必须改密）

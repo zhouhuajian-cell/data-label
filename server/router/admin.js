@@ -32,8 +32,9 @@ export async function adminRouter(ctx) {
     ok(res, updateUser(user, Number(userItem[1]), await body())); return true
   }
   if (userItem && req.method === 'DELETE') {
-    const { deleteUser } = await import('../services/users.js')
-    ok(res, deleteUser(user, Number(userItem[1]))); return true
+    // DELETE = 彻底删除（不可恢复）；停用/启用请走 PUT { disabled }
+    const { removeUser } = await import('../services/users.js')
+    ok(res, removeUser(user, Number(userItem[1]))); return true
   }
 
   // 管理员重置密码（被重置账号下次登录强制改密）

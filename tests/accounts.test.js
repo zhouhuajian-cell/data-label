@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { config } from '../server/config.js'
 import { users } from '../server/repositories/data.js'
 import { normalizeRoleTypes, roleTypesOf, hasRole, hasAnyRole, tokenRoles } from '../server/lib/roles.js'
-import { createUser, updateUser, adminResetPassword, listUsers, deleteUser } from '../server/services/users.js'
+import { createUser, updateUser, adminResetPassword, listUsers, disableUser, removeUser } from '../server/services/users.js'
 import { changeOwnPassword, loginByPassword, PASSWORD_MIN_LENGTH } from '../server/services/auth.js'
 // 单元测试绝不触碰真实 MySQL（本用例只操作内存集合）
 config.db.enabled = false
@@ -94,8 +94,8 @@ test('鉴权：token 携带全部角色；禁用账号不可登录；不能禁�
   const u = users.find(x => x.id === created.id)
   assert.deepEqual(tokenRoles(u), { roleType: 13, roleTypes: [13, 16] })
 
-  assert.throws(() => deleteUser(pm, 1), err => err.status === 422)
-  deleteUser(pm, created.id)
+  assert.throws(() => disableUser(pm, 1), err => err.status === 422)
+  disableUser(pm, created.id)
   assert.throws(() => loginByPassword({ username: 'token_user_01', password: '123456' }),
     err => err.code === 'INVALID_CREDENTIALS')
 })
