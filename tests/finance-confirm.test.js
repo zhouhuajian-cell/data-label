@@ -735,3 +735,39 @@ test('重定位修复：重提后只一人确认，不应被判为第一环节�
   await confirmBill(engineer2, bill.id, {})
   assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_FINANCE', '补齐确认后才流转')
 })
+
+// ===== 重提后「所有逻辑重新走一遍」：任何判断都不得读上一轮的确认 =====
+test('重新提交后不读历史确认：已办列表、编辑权限、统结金额口径都按新一轮算', async () => {
+  const engineer2 = { id: SECOND_ENGINEER_ID, roleType: 13, roleTypes: [13], userName: '赵晓伟' }
+  const bill = await makeBill()
+  await assignEngineer(finance, bill.id, { engineerIds: [ENGINEER_ID, SECOND_ENGINEER_ID] })
+
+  // 第一轮：走完工程师环节、财务完成核算后驳回（驳回在财务节点，此时正好停在财务）
+  await confirmBill(bizEngineer, bill.id, {})
+  await confirmBill(engineer2, bill.id, {})
+  await calculateBill(finance, bill.id, { deduction: 0, taxRate: 0 })
+  // 此刻工程师「已处理过」该单
+  const doneBefore = listBills(bizEngineer, new URLSearchParams({ scope: 'done' }))
+  assert.equal(doneBefore.items.some(b => b.id === bill.id), true, '本轮确认过，应出现在已办')
+
+  await rejectBill(finance, bill.id, { reason: '成本中心要改' })
+  await resubmitBill(supplierA, bill.id)
+  const fresh = await getBillDetail(pm, bill.id)
+
+  // ① 重提后状态回到第一环节，且本轮无任何确认
+  assert.equal(fresh.status, 'PENDING_BIZ')
+  assert.equal(fresh.currentStage, 0)
+  assert.equal(fresh.confirmedCount, 0, '本轮确认数应为 0（历史记录不算）')
+
+  // ② 「我已处理过」不应再包含该单（上一轮的确认不算）
+  const doneAfter = listBills(bizEngineer, new URLSearchParams({ scope: 'done' }))
+  assert.equal(doneAfter.items.some(b => b.id === bill.id), false, '重提后上一轮确认不应算已办')
+
+  // ③ 上一轮的财务核算已作废（需要重新核算）
+  assert.equal(fresh.finance, null, '旧核算作废')
+  // ④ 上一轮的统结对比结果同样作废
+  assert.equal(fresh.comparison, null, '旧统结对比作废')
+
+  // ⑤ 第一环节重新设为待确认（两位工程师都要重新确认）
+  assert.deepEqual(fresh.assignees.map(a => a.confirmed), [false, false])
+})

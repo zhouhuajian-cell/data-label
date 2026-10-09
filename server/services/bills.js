@@ -486,7 +486,8 @@ export async function resubmitSettlement(user, id, body = {}) {
     submittedBy: actorText(user),
     resubmittedAt: nowText()
   }
-  const last = [...bill.confirms].reverse().find(c => c.stageKey === 'SETTLEMENT')
+  // 只认本轮记录：供应商重提后整条链路重新走，不沿用上一轮的统结提交
+  const last = [...confirmsOfCurrentRound(bill)].reverse().find(c => c.stageKey === 'SETTLEMENT')
   if (last) last.settlement = settlement
   else {
     bill.confirms.push({
@@ -716,7 +717,8 @@ function filterBills(user, query) {
     // 用 isMyTurn：第一环节按被指派的工程师算，避免改派后两个工程师都看到同一张单
     list = list.filter(b => isMyTurn(user, b))
   } else if (scope === 'done') {
-    list = list.filter(b => (b.confirms || []).some(c => c.userId === user.id))
+    // 只认本轮的确认：供应商重提后，该单在本轮尚未经我确认，不应出现在「已处理」里
+    list = list.filter(b => confirmsOfCurrentRound(b).some(c => c.userId === user.id))
   }
 
   const supplierName = String(query.get('supplierName') || '').trim()
@@ -852,7 +854,8 @@ function pushSupplierSubmit(bill, user, { mode = 'create', comment = '' } = {}) 
 }
 
 function canEdit(bill) {
-  const noConfirmYet = (bill.confirms || []).length === 0
+  // 只认本轮确认：驳回重提后是新的一轮，供应商仍可编辑（整条链路重新走）
+  const noConfirmYet = confirmsOfCurrentRound(bill).length === 0
   return bill.status === 'REJECTED' || (bill.status === 'PENDING_BIZ' && noConfirmYet)
 }
 
@@ -1017,7 +1020,7 @@ export async function deleteBill(user, id) {
     throw new ApiError(403, 'FORBIDDEN', '无权删除该结算单')
   }
   // 管理员（role 1）可强制删除任意状态的单据（用于清理误建/测试数据）；其余角色仍需未确认
-  if ((bill.confirms || []).length > 0 && !hasRole(user, ROLE.CLIENT_PM)) {
+  if (confirmsOfCurrentRound(bill).length > 0 && !hasRole(user, ROLE.CLIENT_PM)) {
     throw new ApiError(409, 'BILL_STATE_CONFLICT', '已有确认记录的结算单不可删除，请走驳回流程')
   }
   await deleteBillRow(bill.id)
@@ -1426,7 +1429,8 @@ export async function confirmBill(user, id, body = {}) {
   // 财务二次确认：供应商合计 vs 统结方提交合计，超 3.5% 报警且确认不了
   let comparisonInfo = null
   if (stage.key === 'FINANCE2') {
-    const settled = [...bill.confirms].reverse().find(c => c.stageKey === 'SETTLEMENT' && c.settlement)
+    // 只认本轮：统结方重新提交后以本轮提交额为准，否则会拿上一轮的金额做对比
+    const settled = [...confirmsOfCurrentRound(bill)].reverse().find(c => c.stageKey === 'SETTLEMENT' && c.settlement)
     const submitted = settled ? Number(settled.settlement.submittedTotal) || 0 : 0
     if (!submitted) throw new ApiError(409, 'SETTLEMENT_REQUIRED', '统结方尚未提交数据，无法进行财务二次确认')
     const { base, supplierCount, billCount, suppliers: supplierNames } = supplierBaseAmount(bill)
@@ -1540,7 +1544,8 @@ export async function resubmitBill(user, id) {
   bill.rejectReason = ''
   bill.currentStage = 0
   bill.resubmitCount = (bill.resubmitCount || 0) + 1
-  bill.finance = null // 金额可能变化，旧核算作废
+  bill.finance = null // 金额可能变化，旧核算作废
+  bill.comparison = null // 上一轮的统结对比结果同样作废
   // 把上一轮确认记录显式标记为旧轮次（此后不再依赖时间推断）
   for (const c of bill.confirms || []) {
     if (typeof c.round !== 'number') c.round = (bill.resubmitCount || 1) - 1
@@ -1681,7 +1686,10 @@ export async function exportBillsCsv(user, query) {
 // 统结方在某张单据上提交的金额（金额由统结明细自动汇总而来）。
 // 取最后一次提交：统结方改正后重提时以最新一次为准。未走到该环节返回 null。
 export function settlementSubmittedOf(bill) {
-  const recs = (bill.confirms || []).filter(c => c.stageKey === 'SETTLEMENT' && c.settlement)
+  const round = bill.resubmitCount || 0
+  // 只认本轮：重提后上一轮的统结金额不再作为统计口径
+  const recs = (bill.confirms || []).filter(c => c.stageKey === 'SETTLEMENT' && c.settlement &&
+    (typeof c.round !== 'number' || c.round === round))
   if (!recs.length) return null
   const v = Number(recs[recs.length - 1].settlement?.submittedTotal)
   return Number.isFinite(v) ? v : null
