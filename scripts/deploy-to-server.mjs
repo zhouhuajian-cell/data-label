@@ -344,14 +344,24 @@ echo "已安装 /etc/systemd/system/\${SVC}.service"
 
 # nginx 反向代理（让地址不带端口）：服务器装了 nginx 才同步配置
 if command -v nginx >/dev/null 2>&1 && [ -f "$DIR/deploy/nginx-data-label.conf" ]; then
-  if [ ! -f /etc/nginx/sites-available/data-label ] || ! diff -q "$DIR/deploy/nginx-data-label.conf" /etc/nginx/sites-available/data-label >/dev/null 2>&1; then
-    install -m 644 "$DIR/deploy/nginx-data-label.conf" /etc/nginx/sites-available/data-label
+  # 配置里写的是 /opt/data_label，按实际部署目录替换后再比对/安装，
+  # 否则每次部署都会因"内容不同"重装一遍 nginx 配置
+  NGINX_TMP=$(mktemp)
+  sed -e "s|/opt/data_label|$DIR|g" "$DIR/deploy/nginx-data-label.conf" > "$NGINX_TMP"
+  if [ ! -f /etc/nginx/sites-available/data-label ] || ! diff -q "$NGINX_TMP" /etc/nginx/sites-available/data-label >/dev/null 2>&1; then
+    install -m 644 "$NGINX_TMP" /etc/nginx/sites-available/data-label
     ln -sf /etc/nginx/sites-available/data-label /etc/nginx/sites-enabled/data-label
     [ -e /etc/nginx/sites-enabled/default ] && rm -f /etc/nginx/sites-enabled/default
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx && echo "已同步 nginx 站点配置（http://${CFG.host}/）"
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx && echo "已同步 nginx 站点配置（http://${CFG.host}/，含 gzip 与静态直出）"
+    else
+      echo "⚠ nginx 配置校验失败，已保留原配置未生效（请检查 $DIR/deploy/nginx-data-label.conf）"
+      rm -f /etc/nginx/sites-available/data-label
+    fi
   else
     echo "nginx 站点配置无变化"
   fi
+  rm -f "$NGINX_TMP"
 fi
 `)
 console.log(tail(install.out, 30))
