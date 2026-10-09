@@ -370,12 +370,22 @@ export async function repairBillStages() {
       if (bill.currentStage !== BILL_STAGES.length) { bill.currentStage = BILL_STAGES.length; await saveBill(bill); fixed++ }
       continue
     }
-    const done = new Set((bill.confirms || []).map(c => c.stageKey))
+    // 重定位：按「当前轮次」判断各环节是否完成，且第一环节要求「全体被指派工程师」均已确认。
+    // ⚠ 早前这里用「所有确认记录的 stageKey 集合」判断，会把上一轮（甚至最早一轮）的确认
+    // 也算作本环节已完成，导致供应商重新提交后单据被直接推进、跳过了工程师确认
+    // （真实案例：康尼瑞行某单第 3 次重提后只彭晓蕾确认就流转到了财务，赵晓伟被跳过）。
+    const repairRound = bill.resubmitCount || 0
+    const doneThisRound = (key) => (bill.confirms || []).some(c =>
+      c.stageKey === key && (typeof c.round !== 'number' || c.round === repairRound))
     let idx = 0
     // 只按「对本单适用」的环节推进：免统结供应商的统结两环节直接跳过
     while (true) {
       idx = nextApplicableIndex(bill, idx)
-      if (idx >= BILL_STAGES.length || !done.has(BILL_STAGES[idx].key)) break
+      if (idx >= BILL_STAGES.length) break
+      const stage = BILL_STAGES[idx]
+      // 第一环节：多人确认需全部确认；其余环节：本轮已有确认记录即可
+      const stageDone = stage.key === 'BIZ' ? allAssigneesConfirmed(bill) : doneThisRound(stage.key)
+      if (!stageDone) break
       idx += 1
     }
     const status = deriveStatus({ currentStage: idx, rejected: bill.rejected })

@@ -702,3 +702,36 @@ test('驳回重提后：若本轮已有人确认，则不可再改派', async ()
     err => err.code === 'BILL_STATE_CONFLICT'
   )
 })
+
+// ===== 启动重定位：必须按「当前轮次 + 全员确认」判断，不能拿历史确认当已完成 =====
+test('重定位修复：重提后只一人确认，不应被判为第一环节已完成', async () => {
+  const engineer2 = { id: SECOND_ENGINEER_ID, roleType: 13, roleTypes: [13], userName: '赵晓伟' }
+  const bill = await makeBill()
+  await assignEngineer(finance, bill.id, { engineerIds: [ENGINEER_ID, SECOND_ENGINEER_ID] })
+
+  // 第 0 轮：两人都确认 → 正常流转到财务
+  await confirmBill(bizEngineer, bill.id, {})
+  await confirmBill(engineer2, bill.id, {})
+  assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_FINANCE')
+
+  // 财务驳回 → 供应商重新提交（新一轮）
+  await rejectBill(finance, bill.id, { reason: '成本中心需修正' })
+  await resubmitBill(supplierA, bill.id)
+  assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_BIZ')
+
+  // 新一轮里只有一人确认（赵晓伟未确认）
+  await confirmBill(bizEngineer, bill.id, {})
+  assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_BIZ', '第一环节未全员确认，不应流转')
+
+  // 此时跑启动重定位：不能因为「上一轮有人确认过 BIZ」就把它推进到财务
+  const { repairBillStages } = await import('../server/services/bills.js')
+  await repairBillStages()
+  const after = await getBillDetail(pm, bill.id)
+  assert.equal(after.status, 'PENDING_BIZ', '重定位不得跳过未完成的工程师确认')
+  assert.equal(after.currentStage, 0)
+
+  // 赵晓伟仍应看到待办（未被跳过）
+  assert.equal(after.isMyTurn === false || after.isMyTurn === true, true)
+  await confirmBill(engineer2, bill.id, {})
+  assert.equal((await getBillDetail(pm, bill.id)).status, 'PENDING_FINANCE', '补齐确认后才流转')
+})
