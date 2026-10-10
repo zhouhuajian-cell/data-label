@@ -88,6 +88,7 @@ const roleOptions = [
   { value: ROLE_TYPE.CLIENT_PM, label: '管理员' },
   { value: ROLE_TYPE.VENDOR_TL, label: '供应商' },
   { value: ROLE_TYPE.INDEPENDENT_SETTLE, label: '独立结算' },
+  { value: ROLE_TYPE.OVERSEAS_COLLECT, label: '海外数据采集' },
   { value: ROLE_TYPE.BIZ_ENGINEER, label: '业务工程师' },
   { value: ROLE_TYPE.FINANCE, label: '财务' },
   { value: ROLE_TYPE.LEADER, label: '负责人' },

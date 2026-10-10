@@ -20,7 +20,7 @@ import {
   // 独立结算：持该身份(角色19)的供应商，单据跳过「统结方提交」与「财务二次确认」
   isSettlementExempt, stageListOf, nextApplicableIndex, currentStageIndex,
   // 第一环节支持指派多人（多人确认）：全部确认后才流转到下一环节
-  assigneesOf, confirmedInStage, allAssigneesConfirmed
+  assigneesOf, confirmedInStage, allAssigneesConfirmed, isOverseasCollect
 } from '../lib/bill-flow.js'
 import { hasRole, hasAnyRole } from '../lib/roles.js'
 import { ACCEPTANCE_MAX_ROWS } from './excel.js'
@@ -354,6 +354,12 @@ export async function repairBillStages() {
       bill.settlementExempt = exempt
       await saveBill(bill)
       fixed++
+    }    // 海外数据采集身份回填：同理，账号角色变更后历史单据一并跟上
+    const overseas = resolveOverseasCollect(bill.supplierName)
+    if (bill.overseasCollect !== overseas) {
+      bill.overseasCollect = overseas
+      await saveBill(bill)
+      fixed++
     }
     // 已完成/历史单据：补齐「供应商提交」记录（新字段，老单据没有）
     if (!Array.isArray(bill.supplierSubmits) || !bill.supplierSubmits.length) {
@@ -611,6 +617,16 @@ function resolveSettlementExempt(supplierName) {
     && hasRole(u, ROLE.INDEPENDENT_SETTLE))
 }
 
+// 供应商是否为「海外数据采集」（持角色 20）：单据走最短链路（工程师确认 → OA 结算确认）。
+// 与独立结算同理：创建时解析并快照到单据，账号角色变更不影响已建单据的流转路径。
+function resolveOverseasCollect(supplierName) {
+  const name = String(supplierName || '').trim()
+  if (!name) return false
+  return users.some(u => !u.disabled
+    && String(u.userName || '').trim() === name
+    && hasRole(u, ROLE.OVERSEAS_COLLECT))
+}
+
 function buildChain(bill) {
   const rejected = bill.status === 'REJECTED'
   const lastRejectStage = rejected
@@ -670,6 +686,7 @@ function toListItem(user, bill) {
     resubmitCount: bill.resubmitCount,
     // 独立结算身份（前端据此提示：本单不经统结方）
     settlementExempt: isSettlementExempt(bill),
+    overseasCollect: isOverseasCollect(bill),
     rejectReason: bill.rejectReason || '',
     sourceFileName: bill.sourceFileName || '', importMode: bill.importMode || 'manual',
     formula: bill.formula || DEFAULT_FORMULA,
@@ -929,6 +946,8 @@ export async function createBill(user, body) {
     resubmitCount: 0,
     // 独立结算身份快照：创建时按供应商账号所持角色(19)判定，此后不随账号改名而变
     settlementExempt: resolveSettlementExempt(supplierName),
+    // 海外数据采集身份快照：走最短链路（工程师确认 → OA结算确认）
+    overseasCollect: resolveOverseasCollect(supplierName),
     confirms: [],
     rejections: [],
     // 供应商提交记录（确认链路之外的起点，明细「确认记录」要能看到谁在什么时候提交的）

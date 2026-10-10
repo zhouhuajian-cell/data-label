@@ -19,6 +19,9 @@
             </span>
             <span class="ma-tip">全部确认通过后才会流转到下一环节</span>
           </div>
+          <!-- 海外数据采集（角色20）：走最短链路 -->
+          <el-alert v-if="detail.overseasCollect" type="info" :closable="false" show-icon class="mb12"
+            title="本单为海外数据采集：链路为「工程师确认 → OA 结算确认」两个环节。" />
           <!-- 独立结算（角色19）：与统结方无合同，链路里没有统结方/财务二次确认两环节 -->
           <el-alert v-if="detail.settlementExempt" type="info" :closable="false" show-icon class="mb12"
             title="本单为独立结算：不经统一结算方，财务确认后直接流转至负责人。" />

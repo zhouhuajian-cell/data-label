@@ -771,3 +771,52 @@ test('重新提交后不读历史确认：已办列表、编辑权限、统结�
   // ⑤ 第一环节重新设为待确认（两位工程师都要重新确认）
   assert.deepEqual(fresh.assignees.map(a => a.confirmed), [false, false])
 })
+
+// ===== 海外数据采集身份：最短链路（工程师确认 → OA结算确认）=====
+test('海外数据采集：链路只有两个环节，工程师确认后直达 OA', async () => {
+  const HW_ID = 950
+  if (!users.some(u => u.id === HW_ID)) {
+    users.push({ id: HW_ID, username: 'overseas_co', userName: '海外采集供应商', roleType: 3, roleTypes: [3, 20], disabled: false })
+  }
+  const hwSupplier = { id: HW_ID, roleType: 3, roleTypes: [3, 20], userName: '海外采集供应商' }
+
+  const bill = await createBill(hwSupplier, {
+    projectId: PROJECT_ID,
+    batchName: '海外采集批次-' + (++seq),
+    period: '2034-05',
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: 'f.csv', size: 1 }],
+    costCenters: [{ name: 'M57', ratio: 100 }],
+    items: [{ taskName: '采集数据', quantity: 10, unitPrice: 100 }]
+  })
+  const d0 = await getBillDetail(pm, bill.id)
+  assert.equal(d0.overseasCollect, true, '应识别为海外数据采集身份')
+  assert.deepEqual(d0.stages.map(s => s.key), ['BIZ', 'OA'], '链路应只保留工程师确认与 OA 结算确认')
+
+  // 指派工程师 → 确认 → 直接到 OA（跳过财务、统结、财务二次、负责人、算法）
+  await assignEngineer(finance, bill.id, { engineerId: ENGINEER_ID })
+  await confirmBill(bizEngineer, bill.id, { comment: '数据已核对' })
+  const d1 = await getBillDetail(pm, bill.id)
+  assert.equal(d1.status, 'PENDING_OA', '工程师确认后应直接进入 OA 环节')
+
+  // OA 确认 → 整单完成
+  await confirmBill({ id: OA_ID, roleType: 18, roleTypes: [18], userName: '彭桂苹' }, bill.id, { comment: 'OA 已录入' })
+  const done = await getBillDetail(pm, bill.id)
+  assert.equal(done.status, 'APPROVED')
+  assert.equal(done.confirms.filter(c => c.stageKey === 'BIZ' || c.stageKey === 'OA').length >= 2, true)
+})
+
+test('海外数据采集：不受统结/独立结算判定影响（模板优先级）', async () => {
+  const HW_ID = 950
+  const hwSupplier = { id: HW_ID, roleType: 3, roleTypes: [3, 20], userName: '海外采集供应商' }
+  const bill = await createBill(hwSupplier, {
+    projectId: PROJECT_ID,
+    batchName: '海外采集批次2-' + (++seq),
+    period: '2034-06',
+    attachments: [{ storedName: 'bills/fixture.csv', originalName: 'f.csv', size: 1 }],
+    costCenters: [{ name: 'M57', ratio: 100 }],
+    items: [{ taskName: '采集数据', quantity: 10, unitPrice: 100 }]
+  })
+  const d = await getBillDetail(pm, bill.id)
+  assert.equal(d.settlementExempt, false, '海外采集与独立结算是两个不同身份')
+  assert.equal(d.stages.length, 2)
+})

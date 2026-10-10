@@ -22,7 +22,10 @@ export const ROLE = {
   // 独立结算：供应商侧的身份标记——与统一结算方无合同关系，
   // 其单据财务确认后直达负责人（跳过「统结方提交」与「财务二次确认」）。
   // 注意：它不改变数据权限，仍是供应商口径（见 isSupplierOnly）。
-  INDEPENDENT_SETTLE: 19
+  INDEPENDENT_SETTLE: 19,
+  // 海外数据采集：供应商侧身份标记——走最短链路（工程师确认 → OA 结算确认）。
+  // 同样不改变数据权限，仍是供应商口径。
+  OVERSEAS_COLLECT: 20
 }
 
 // 确认顺序即数组顺序，禁止跳步
@@ -30,11 +33,9 @@ export const BILL_STAGES = [
   { key: 'BIZ', label: '工程师确认', short: '工程师', roleName: '业务工程师', roleType: ROLE.BIZ_ENGINEER, status: 'PENDING_BIZ' },
   { key: 'FINANCE', label: '财务确认', short: '财务', roleName: '财务', roleType: ROLE.FINANCE, status: 'PENDING_FINANCE' },
   // 统一结算方（柏川）：提交本周期总金额，与各供应商确认金额合计做 3.5% 增幅校验
-  // optional：与统结方无合同关系的供应商跳过此环节（见 SETTLEMENT_EXEMPT_SUPPLIERS）
-  { key: 'SETTLEMENT', label: '统结方提交', short: '统结方', roleName: '统结方', roleType: ROLE.SETTLEMENT, status: 'PENDING_SETTLEMENT', optional: true },
+  { key: 'SETTLEMENT', label: '统结方提交', short: '统结方', roleName: '统结方', roleType: ROLE.SETTLEMENT, status: 'PENDING_SETTLEMENT' },
   // 统结方提交后：供应商与统结方的结果汇总到财务做二次确认（3.5% 增幅在此校验）
-  // optional：二次确认是为统结对比服务的，不走统结的供应商一并跳过
-  { key: 'FINANCE2', label: '财务二次确认', short: '财务二次', roleName: '财务', roleType: ROLE.FINANCE, status: 'PENDING_FINANCE2', optional: true },
+  { key: 'FINANCE2', label: '财务二次确认', short: '财务二次', roleName: '财务', roleType: ROLE.FINANCE, status: 'PENDING_FINANCE2' },
   { key: 'LEADER', label: '负责人确认', short: '负责人', roleName: '负责人', roleType: ROLE.LEADER, status: 'PENDING_LEADER' },
   { key: 'PERCEPTION', label: '算法确认', short: '算法', roleName: '算法', roleType: ROLE.PERCEPTION, status: 'PENDING_PERCEPTION' },
   // 末环节：OA 结算专员（彭桂苹）走 OA 系统最新结算后确认，确认完单据才算完成
@@ -63,11 +64,43 @@ export function isSettlementExempt(bill) {
   return bill?.settlementExempt === true
 }
 
-// 该环节对本单是否适用（optional 环节仅对免统结供应商跳过）
+// ===== 链路模板 =====
+
+
+// ===== 链路模板：不同身份走不同环节 =====
+// 每个模板是 BILL_STAGES 的 key 子集（保持链路顺序）：
+//   standard    标准链路：全部 7 个环节
+//   independent 独立结算（角色19）：跳过「统结方提交」与「财务二次确认」
+//   overseas    海外数据采集（角色20）：只保留「工程师确认」与「OA结算确认」
+// null 表示不裁剪（走全部环节）
+export const CHAIN_TEMPLATES = {
+  standard: null,
+  independent: ['BIZ', 'FINANCE', 'LEADER', 'PERCEPTION', 'OA'],
+  overseas: ['BIZ', 'OA']
+}
+
+// 本单适用哪条模板：海外数据采集优先（链路最短），其次独立结算，否则标准
+export function chainTemplateOf(bill) {
+  if (bill?.overseasCollect === true) return 'overseas'
+  if (isSettlementExempt(bill)) return 'independent'
+  return 'standard'
+}
+
+export function chainKeysOf(bill) {
+  const tpl = CHAIN_TEMPLATES[chainTemplateOf(bill)]
+  return tpl || BILL_STAGES.map(s => s.key)
+}
+
+// 海外数据采集身份（角色 20）：单据走最短链路。与独立结算同理，
+// 由账号角色解析后快照到单据字段 overseasCollect（创建时写入、启动时回填）。
+export function isOverseasCollect(bill) {
+  return bill?.overseasCollect === true
+}
+
+// 该环节对本单是否适用（由链路模板决定）
 export function isStageApplicable(stage, bill) {
   if (!stage) return false
-  if (!stage.optional) return true
-  return !isSettlementExempt(bill)
+  return chainKeysOf(bill).includes(stage.key)
 }
 
 // 本单实际要走的环节（保留原始数组下标，供 confirms.stage 与前端展示用）
