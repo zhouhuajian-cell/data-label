@@ -11,10 +11,10 @@ set -euo pipefail
 DIR="${BACKUP_DIR:-/root/backup}"
 KEEP_DAYS="${KEEP_DAYS:-14}"
 APP_DIR="${APP_DIR:-/opt/data_label}"
-OFFSITE_HOST="${OFFSITE_HOST:-10.2.248.34}"
-OFFSITE_USER="${OFFSITE_USER:-algo}"
-OFFSITE_DIR="${OFFSITE_DIR:-/home/algo/data_label_backup}"
-OFFSITE_KEY="${OFFSITE_KEY:-/root/.ssh/data_label_backup_key}"
+# 异地备份目录：独立存储服务器（SMB 挂载在 /mnt/share），与本机磁盘物理隔离。
+# 旧方案是 SSH 推送到 10.2.248.34，但该机不稳定（2026-10-19 掉线导致异地中断），
+# 已改为写 NAS：设备独立、容量充足（剩余 861TB）、不依赖对方机器在线。
+OFFSITE_DIR="${OFFSITE_DIR:-/mnt/share/data_label_backup}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 FILE="$DIR/data_label-$STAMP.sql.gz"
 UPLOADS_FILE="$DIR/data_label-uploads-$STAMP.tar.gz"
@@ -46,21 +46,18 @@ if [ -f "$APP_DIR/.env" ]; then
   gzip -t "$ENV_FILE"
 fi
 
-# 4) 异地容灾（10.2.248.34，专用受限密钥：接收端只允许推送到备份目录）
+# 4) 异地容灾（写入 NAS 挂载目录；目录不可用则本次仅本地备份并告警）
 OFFSITE_OK=1
-if [ -f "$OFFSITE_KEY" ]; then
+if [ -d "$OFFSITE_DIR" ]; then
   for f in "$FILE" "$UPLOADS_FILE" "$ENV_FILE"; do
     [ -f "$f" ] || continue
-    rsync -az --timeout=60 \
-      -e "ssh -i $OFFSITE_KEY -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new" \
-      "$f" "$OFFSITE_USER@$OFFSITE_HOST:$OFFSITE_DIR/" || OFFSITE_OK=0
+    cp -f "$f" "$OFFSITE_DIR/" || OFFSITE_OK=0
   done
-  # 异地过期清理（接收端白名单了这一条精确命令，90 天）
-  ssh -n -i "$OFFSITE_KEY" -o ConnectTimeout=10 \
-    "$OFFSITE_USER@$OFFSITE_HOST" \
-    "find /home/algo/data_label_backup -type f -mtime +90 -delete" >/dev/null 2>&1 || true
+  # 异地过期清理（90 天）
+  find "$OFFSITE_DIR" -name 'data_label-*' -type f -mtime +90 -delete 2>/dev/null || true
 else
-  echo "[$(date '+%F %T')] [警告] 未找到异地密钥 $OFFSITE_KEY，跳过异地备份" >&2
+  echo "[$(date '+%F %T')] [警告] 异地目录不可用（$OFFSITE_DIR），本次仅本地备份" >&2
+  OFFSITE_OK=0
 fi
 
 # 5) 本地过期清理

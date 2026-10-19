@@ -101,20 +101,24 @@ else
 fi
 
 OFF_FAIL=/root/backup/.offsite-failed
+OFF_DIR=/mnt/share/data_label_backup
 if [ -f "$OFF_FAIL" ]; then
   # 备份脚本明确标记了异地失败：文案写清「本地正常」，避免值班误判
-  alert backup_offsite "【异常】异地备份失败（10.2.248.6 → 10.2.248.34），最后一次失败：$(cat "$OFF_FAIL")。本地备份不受影响；请确认 .34 主机是否在线、网络是否可达、密钥是否仍被授权。恢复后凌晨自动补推。"
+  alert backup_offsite "【异常】异地备份失败（NAS $OFF_DIR），最后一次失败：$(cat "$OFF_FAIL")。本地备份不受影响；请检查 NAS 挂载是否正常（mount | grep /mnt/share）。恢复后凌晨自动补推。"
+elif [ ! -d "$OFF_DIR" ]; then
+  alert backup_offsite "【异常】异地备份目录不可用（NAS $OFF_DIR 未挂载）。本地备份不受影响；请检查 NAS 挂载。"
 else
-OFF_KEY=/root/.ssh/data_label_backup_key
-if [ -f "$OFF_KEY" ]; then
-  OFF_LATEST=$(ssh -n -i "$OFF_KEY" -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-    algo@10.2.248.34 "ls -1t /home/algo/data_label_backup/data_label-*.sql.gz 2>/dev/null | head -1" 2>/dev/null)
-  if [ -n "$OFF_LATEST" ]; then
-    recover backup_offsite "【已恢复】异地备份恢复正常（10.2.248.34）"
+  OFF_LATEST=$(ls -1t "$OFF_DIR"/data_label-*.sql.gz 2>/dev/null | head -1)
+  if [ -z "$OFF_LATEST" ]; then
+    alert backup_offsite "【异常】异地备份缺失（NAS $OFF_DIR 下没有任何备份）。请检查 /var/log/data-label-backup.log"
   else
-    alert backup_offsite "【异常】异地备份缺失（10.2.248.6 → 10.2.248.34）。请检查 /var/log/data-label-backup.log 与密钥 /root/.ssh/data_label_backup_key"
+    OFF_AGE=$(( (NOW - $(stat -c %Y "$OFF_LATEST")) / 3600 ))
+    if [ "$OFF_AGE" -le 26 ]; then
+      recover backup_offsite "【已恢复】异地备份正常（NAS，最近一份 ${OFF_AGE} 小时前）"
+    else
+      alert backup_offsite "【异常】异地备份过期（NAS，最近一份 ${OFF_AGE} 小时前）。请检查 /var/log/data-label-backup.log 与 NAS 挂载"
+    fi
   fi
-fi
 fi
 
 # ===== 6) app_state 体量（写放大预警：notifications/auditLogs 只增不减）=====
