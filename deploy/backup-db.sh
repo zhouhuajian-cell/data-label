@@ -66,6 +66,13 @@ fi
 # 5) 本地过期清理
 find "$DIR" -name 'data_label-*' -type f -mtime "+$KEEP_DAYS" -delete
 
+# 异地结果标记：供巡检脚本判断（比 SSH 探测更直接，也能覆盖「文件还在但已过期」）
+if [ "$OFFSITE_OK" = "1" ]; then
+  rm -f "$DIR/.offsite-failed"
+else
+  date '+%F %T' > "$DIR/.offsite-failed"
+fi
+
 if [ "$OFFSITE_OK" = "1" ]; then
   echo "[$(date '+%F %T')] 备份完成（本地+异地） $(du -h "$FILE" | cut -f1) → $FILE（本地保留 $KEEP_DAYS 天，异地保留 90 天）"
 else

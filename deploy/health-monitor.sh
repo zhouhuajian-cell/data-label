@@ -100,6 +100,11 @@ else
   alert backup_local "【异常】找不到任何本地备份（10.2.248.6 $BK_DIR）"
 fi
 
+OFF_FAIL=/root/backup/.offsite-failed
+if [ -f "$OFF_FAIL" ]; then
+  # 备份脚本明确标记了异地失败：文案写清「本地正常」，避免值班误判
+  alert backup_offsite "【异常】异地备份失败（10.2.248.6 → 10.2.248.34），最后一次失败：$(cat "$OFF_FAIL")。本地备份不受影响；请确认 .34 主机是否在线、网络是否可达、密钥是否仍被授权。恢复后凌晨自动补推。"
+else
 OFF_KEY=/root/.ssh/data_label_backup_key
 if [ -f "$OFF_KEY" ]; then
   OFF_LATEST=$(ssh -n -i "$OFF_KEY" -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
@@ -107,8 +112,9 @@ if [ -f "$OFF_KEY" ]; then
   if [ -n "$OFF_LATEST" ]; then
     recover backup_offsite "【已恢复】异地备份恢复正常（10.2.248.34）"
   else
-    alert backup_offsite "【异常】异地备份缺失或推送失败（10.2.248.6 → 10.2.248.34）。请检查 /var/log/data-label-backup.log 与密钥 /root/.ssh/data_label_backup_key"
+    alert backup_offsite "【异常】异地备份缺失（10.2.248.6 → 10.2.248.34）。请检查 /var/log/data-label-backup.log 与密钥 /root/.ssh/data_label_backup_key"
   fi
+fi
 fi
 
 # ===== 6) app_state 体量（写放大预警：notifications/auditLogs 只增不减）=====
